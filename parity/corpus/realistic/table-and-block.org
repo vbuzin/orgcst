@@ -1,0 +1,12 @@
+#+CAPTION: A small table
+| Name | Count |
+|------+-------|
+| a    | 1     |
+
+#+begin_src rust
+fn main() {}
+#+end_src
+
+#+begin_quote
+Nested quote.
+#+end_quote

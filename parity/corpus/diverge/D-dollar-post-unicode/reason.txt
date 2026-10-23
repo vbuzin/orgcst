@@ -1,0 +1,2 @@
+D-dollar-post-unicode
+U+00A0, U+2013, U+2014, U+2019, and U+2026 follow $a$ as latex in Org. This parser does not carry Emacs's non-ASCII syntax table, so it does not treat them as dollar followers.

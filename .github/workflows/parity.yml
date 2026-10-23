@@ -1,0 +1,19 @@
+name: Parity with org-element
+
+# Builds a pinned Org checkout in Docker and compares the tree for every
+# corpus file. Slow (it clones Org), so it runs weekly and on demand.
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: parity
+      - run: parity/parity.sh

@@ -1,0 +1,11 @@
+* Planning sample
+SCHEDULED: <2026-09-24 Thu>
+:PROPERTIES:
+:ID: sample
+:END:
+
+A paragraph with *bold* and a [[https://example.com][link]].
+
+** Child
+- one
+- two

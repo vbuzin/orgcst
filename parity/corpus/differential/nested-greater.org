@@ -1,0 +1,7 @@
+#+begin_quote
+#+begin_center
+:D:
+| a |
+:END:
+#+end_center
+#+end_quote

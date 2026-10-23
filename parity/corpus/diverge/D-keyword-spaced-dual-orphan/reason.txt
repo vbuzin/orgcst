@@ -1,0 +1,2 @@
+D-keyword-spaced-dual-orphan
+An orphaned #+CAPTION[short cap]: line is a keyword here and a paragraph in Org.

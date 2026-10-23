@@ -1,0 +1,2 @@
+D-angle-rejected-plain
+A closer that is the first non-indent character after a newline is not an angle link, and the https://x inside it is not a plain link. This Org pin still reports that plain link.

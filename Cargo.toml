@@ -1,0 +1,47 @@
+[package]
+name = "orgcst"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+description = "Lossless concrete syntax tree parser for Org-mode, with typed views and structural edits."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/vbuzin/orgcst"
+documentation = "https://docs.rs/orgcst"
+readme = "README.md"
+keywords = ["org-mode", "orgmode", "parser", "cst", "rowan"]
+categories = ["parser-implementations", "text-processing", "text-editors"]
+include = [
+    "/src",
+    "/tests",
+    "/benches",
+    "/examples",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE-MIT",
+    "/LICENSE-APACHE",
+]
+
+[dependencies]
+# Green/red CST: length-based, shareable green nodes and red projections
+# with absolute ranges. Pure Rust, no I/O, builds for wasm32.
+rowan = "0.16.1"
+
+# Benches only. criterion's default features pull rayon, which does not
+# build for wasm32, so it stays off that target.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "baseline"
+harness = false
+
+[workspace]
+exclude = ["fuzz", "parity"]
+
+[lints.rust]
+# `deny` rather than `forbid` so the one rowan `Language` transmute in
+# syntax.rs can be allowed locally.
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

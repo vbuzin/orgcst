@@ -1,0 +1,4 @@
+[fn:1] first line
+continues here
+
+and a second paragraph.

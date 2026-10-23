@@ -1,0 +1,56 @@
+[
+  {
+    "id": "D-table-el",
+    "cites": "non-goal",
+    "fixture": "D-table-el",
+    "summary": "A +- grid is not one table of type table.el."
+  },
+  {
+    "id": "D-radio-occurrence",
+    "cites": "design",
+    "fixture": "D-radio-occurrence",
+    "summary": "Prose that matches a radio target is not a link."
+  },
+  {
+    "id": "D-latex-env-same-line",
+    "cites": "same_line_begin_end_is_not_environment",
+    "fixture": "D-latex-env-same-line",
+    "summary": "A same-line begin/end is not a latex-environment."
+  },
+  {
+    "id": "D-script-mid-tile",
+    "cites": "known bug",
+    "fixture": "D-script-mid-tile",
+    "summary": "A bare script body ending mid-tile drops the entity under the superscript."
+  },
+  {
+    "id": "D-keyword-spaced-dual-orphan",
+    "cites": "known bug",
+    "fixture": "D-keyword-spaced-dual-orphan",
+    "summary": "An orphaned spaced dual caption is a keyword here and a paragraph in Org."
+  },
+  {
+    "id": "D-babel-call-dual",
+    "cites": "design",
+    "fixture": "D-babel-call-dual",
+    "summary": "A key-side dual on #+call is a babel call here and a keyword in Org."
+  },
+  {
+    "id": "D-dollar-post-unicode",
+    "cites": "known bug",
+    "fixture": "D-dollar-post-unicode",
+    "summary": "U+00A0, U+2013, U+2014, U+2019, and U+2026 are dollar followers in Org and not here."
+  },
+  {
+    "id": "D-nesting-budget",
+    "cites": "design",
+    "fixture": "D-nesting-budget",
+    "summary": "Past the nesting budget the tree flattens."
+  },
+  {
+    "id": "D-angle-rejected-plain",
+    "cites": "known bug",
+    "fixture": "D-angle-rejected-plain",
+    "summary": "A rejected angle continuation is not a plain link here. Org still reports https://x."
+  }
+]

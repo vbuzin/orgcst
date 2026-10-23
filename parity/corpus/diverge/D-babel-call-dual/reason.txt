@@ -1,0 +1,2 @@
+D-babel-call-dual
+#+call[inside]: value is a babel call here. Org's CALL: group requires the colon immediately after call.

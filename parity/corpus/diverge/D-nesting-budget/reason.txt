@@ -1,0 +1,2 @@
+D-nesting-budget
+Past 128 open regions the inline tree flattens: the nesting budget (ParseConfig::max_nesting_depth) bounds recursion and tree depth.

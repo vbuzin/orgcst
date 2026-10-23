@@ -1,0 +1,400 @@
+[
+  {
+    "src": "",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "\r\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "no trailing newline",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "crlf\r\nlines\r\n\r\nwith blanks\r\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "café ☕ déjà-vu — emoji 🎉 mixed\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "﻿* H\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "﻿\n* H\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "* TODO [#A] Title :work:home:\nbody\n\n** Child\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "* COMMENT not exported\nbody\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "Intro\n\n* H\nSCHEDULED: <2020-01-01 Wed>\n:PROPERTIES:\n:A: 1\n:END:\nCLOCK: [2020-01-01 Wed 10:00]\nbody\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "*************** TASK inline\nbody\n*************** END\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "*** TASK lowered\nbody\n*** END\n",
+    "inline_task_min_level": 3,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "* NEXT do it\n* CANCELLED dropped\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": [
+      {
+        "interpretation": "sequence",
+        "active": ["NEXT"],
+        "done": ["CANCELLED"]
+      }
+    ],
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "- a\n- b\n\n1. x\n   deep\n2. y\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "1. [@3] counter\n- [ ] unchecked\n- [X] checked\n- term :: definition\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "| a | b |\n|---+---|\n| c | d |\n#+TBLFM: $1=1\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+TITLE: Doc\n#+begin_src rust\nlet x = 1;\n#+end_src\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+begin_quote\n- q\n#+end_quote\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+begin_center\ncentered\n#+end_center\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+begin_example\nverbatim\n#+end_example\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+begin_export html\n<p/>\n#+end_export\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+begin_comment\nhidden\n#+end_comment\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+begin_myspecial\nbody\n#+end_myspecial\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+begin: clocktable :scope file\ncontent\n#+end:\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+begin_verse\n*bold* line \\\\\nsecond <<vt>>\n#+end_verse\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+begin_example\n,*not a heading\n,,*x\n#+end_example\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": ":DRAWER:\ntext\n:END:\nafter\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "[fn:1] a footnote\ntext[fn:1] with a reference\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": ": fixed width\n# a comment\n-----\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+TODO: TODO NEXT | DONE\n#+PRIORITIES: A C B\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+TODO: BUG | FIXED\n* BUG one\n** FIXED two\n* TODO not a keyword\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+CAPTION[short]: long caption\n| a |\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+call: fname[:in 1](x=2)[:out 3]\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "/italic/ *bold* =verb= ~code~ +strike+ _under_\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "x_a and y^{b} and z_{c}\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "[[https://example.com][desc]] plain https://x.com <https://y.com>\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "<<target>> and <<<radio>>> and [1/2] and [/]\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "<2020-01-01 Wed 10:00-11:00 +1w -2d> and [2026-06-24] and <2020-01-01>--<2020-01-05>\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "\\alpha and $a$ and \\(b\\) and @@html:<i/>@@ and {{{title}}} and\\\\\nnext\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "\\begin{equation}\nE = mc^2\n\\end{equation}\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "call_fn[:in 1](x)[:out 2] and src_python[:x 1]{print(1)} inline\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "[cite/t: pre; @key post; @key2]\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "%%(diary-float t 4 2)\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "<%%(diary-float t 4 2)>\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+begin_src\nunclosed\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": ":D:\nno end\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "#+begin_\nempty name\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  },
+  {
+    "src": "\\begin{eq}\nunclosed env\n",
+    "inline_task_min_level": null,
+    "list_alphabetical": null,
+    "todo": null,
+    "link_types": null,
+    "user_entities": null
+  }
+]

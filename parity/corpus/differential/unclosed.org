@@ -1,0 +1,11 @@
+#+begin_src
+unclosed
+still inside
+
+paragraph after a blank
+
+:DRAWER:
+no end
+still in the drawer
+
+paragraph after the drawer

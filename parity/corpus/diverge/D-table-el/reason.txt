@@ -1,0 +1,2 @@
+D-table-el
+A +- grid is not one table of type table.el. Interior pipe rows may still be org tables.

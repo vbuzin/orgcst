@@ -1,0 +1,2 @@
+D-latex-env-same-line
+A same-line \begin{eq}...\end{eq} is not a latex-environment.

@@ -1,0 +1,1 @@
+Paths [[file:C:\dir\file.org][windows]] and [[a\[b\]c]] and [[x\\\[y]] and [[tail\\]] and [[a\\b]].

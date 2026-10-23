@@ -1,0 +1,13 @@
+[package]
+name = "org-parity"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Development-time Org parity harness. Not a workspace member."
+
+[dependencies]
+orgcst = { path = ".." }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["unbounded_depth"] }

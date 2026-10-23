@@ -1,0 +1,2 @@
+D-script-mid-tile
+x^a\alpha-b has no entity under the superscript.

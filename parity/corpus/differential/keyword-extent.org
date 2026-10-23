@@ -1,0 +1,57 @@
+#+A:B:C: v
+#+TODO:FOO: bar
+#+TODO: FOO: bar
+#+LINK:foo:bar
+#+call:name:extra
+#+CALL:name:extra
+#+call:name[inside]: extra
+#+call:name(arg)[end]:results
+
+#+NAME:fig:1
+named target
+
+#+CAPTION[s]:a: b
+captioned target
+
+#+CAPTION:a: b
+plain caption target
+
+#+ATTR_LATEX::w 1
+attr target
+
+#+NAME:fig:1
+
+#+NAME:fig:1
+* H
+
+#+CAPTION:See: this
+
+#+ATTR_LATEX::w 1
+
+kept
+#+FOO[bar]: baz
+together
+
+kept
+#+FOO[bar]:baz: more
+still
+
+kept
+#+FOO:bar[baz]: qux
+still
+
+kept
+#+A:B[c]: d
+still
+
+kept
+#+NAME[s]: v
+together
+
+kept
+#+RESULT[h]: v
+still
+
+prose
+#+RESULTS[h]: v
+more

@@ -1,0 +1,5 @@
+#+begin_quote
+:LOG:
+inside
+:END:
+#+end_quote

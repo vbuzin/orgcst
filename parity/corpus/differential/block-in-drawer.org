@@ -1,0 +1,5 @@
+:BOX:
+#+begin_example
+inside
+#+end_example
+:END:

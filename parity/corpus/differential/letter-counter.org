@@ -1,0 +1,3 @@
+- [@c] lower
+- [@C] upper
+- [@start:c] long
