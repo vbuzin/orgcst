@@ -35,7 +35,8 @@ are listed in `parity/exceptions.json`, each with a fixture under
 ## Ground rules for the parser
 
 These keep the parser predictable. A change that needs to break one should
-say so in the pull request.
+say so in the pull request. [ARCHITECTURE.md](ARCHITECTURE.md) explains them
+and the code layout in more depth.
 
 - **Lossless.** Every source byte belongs to exactly one token. Round trips are
   byte-exact.

@@ -95,6 +95,9 @@ defaults with `parse_with` and `ParseConfig`.
 - A `Document` is an immutable snapshot. Red nodes are not `Send`;
   `PortableDocument` carries a snapshot across threads.
 
+[ARCHITECTURE.md](ARCHITECTURE.md) explains how the code is laid out, what it
+guarantees, and why.
+
 ## Differences from org-element
 
 | Input | org-element | This crate | Why |
