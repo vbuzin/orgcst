@@ -25,9 +25,9 @@
   },
   {
     "id": "D-keyword-spaced-dual-orphan",
-    "cites": "known bug",
+    "cites": "design",
     "fixture": "D-keyword-spaced-dual-orphan",
-    "summary": "An orphaned spaced dual caption is a keyword here and a paragraph in Org."
+    "summary": "An orphaned spaced dual caption is a keyword here, like any orphaned caption, and a paragraph in Org."
   },
   {
     "id": "D-babel-call-dual",

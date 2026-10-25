@@ -196,7 +196,10 @@ fn bracketed_keyword_interrupts(line: LineView, key_from: usize) -> bool {
 /// interior may hold whitespace (`#+CAPTION[short cap]: v`). Org's element
 /// regexp stops at the space and only its *affiliated* regexp accepts the
 /// spaced OPTVAL; the CST keeps one keyword shell for both, which is what
-/// lets such a line affiliate.
+/// lets such a line affiliate. An orphaned spaced line stays a keyword by
+/// design, where Org reads a paragraph: an orphaned caption is a plain
+/// keyword either way (`#+CAPTION: v` is one in Org too), and caption meaning
+/// comes only from attachment.
 ///
 /// `None` when the run is empty or does not end at a `:` on this line.
 fn measure_key_run(line: LineView, key_from: usize) -> Option<(usize, usize)> {

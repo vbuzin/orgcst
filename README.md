@@ -105,7 +105,7 @@ defaults with `parse_with` and `ParseConfig`.
 | `#+call[inside]: value` | a keyword | a babel call | deliberate |
 | Inline objects nested more than 128 deep | nested | flattened past the limit | stack safety |
 | `x^a\alpha-b` | entity under the superscript | no entity | known bug |
-| An orphaned `#+CAPTION[short]: long` | a paragraph | a keyword | known bug |
+| An orphaned `#+CAPTION[short cap]: long` | a paragraph | a keyword | deliberate: an orphaned caption is a keyword either way, and only an attached one is a caption |
 | `$a$` followed by U+00A0, U+2013, U+2014, U+2019 or U+2026 | a LaTeX fragment | not a fragment | known bug |
 | `<https://x` with `>` starting the next line | `https://x` as a plain link | no plain link | known bug |
 

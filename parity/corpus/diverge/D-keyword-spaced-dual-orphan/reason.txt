@@ -1,2 +1,8 @@
 D-keyword-spaced-dual-orphan
 An orphaned #+CAPTION[short cap]: line is a keyword here and a paragraph in Org.
+Deliberate: Org's keyword regexp stops at the space in the dual, so the line
+falls back to a paragraph only when it does not attach. Here every keyword
+line has one shape, attached or not, and an orphaned caption is a plain
+keyword exactly as #+CAPTION: long is in Org. Caption meaning comes only from
+attachment (AFFILIATED_KEYWORDS), so nothing reads it as a caption. The
+difference in Emacs is export: Org prints the line as paragraph text.
