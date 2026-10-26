@@ -618,8 +618,8 @@ mod tests {
     fn set_todo_does_not_recheck_keyword_shaped_title() {
         let doc = parse("* [#A] DONE\n");
         let (_, text) = compile_write(&doc, &set_todo(heading_ref(&doc), Some("TODO")));
-        // Dest is title start (after the present cookie), not Org field order.
-        assert_eq!(text, "* [#A] TODO DONE\n");
+        // The keyword goes before the cookie, the only place Org reads it.
+        assert_eq!(text, "* TODO [#A] DONE\n");
     }
 
     #[test]
@@ -631,8 +631,97 @@ mod tests {
         let next = doc.apply(&set);
         let target = apply_locating(&target, &set, &next).expect("heading remains");
         let set = compile(&next, &set_todo(target, Some("TODO"))).expect("todo");
-        // Dest is title start, after the cookie now present.
-        assert_eq!(next.apply(&set).write(), "* [#A] TODO Title\n");
+        // Org reads the keyword only before the cookie.
+        assert_eq!(next.apply(&set).write(), "* TODO [#A] Title\n");
+    }
+
+    /// Every missing prefix, set on every shape of headline, is read back
+    /// as that prefix: the other prefixes, the title and the tags keep
+    /// their values (Org's order is keyword, priority, `COMMENT`).
+    #[test]
+    fn absent_prefix_lands_in_org_order() {
+        for todo in [false, true] {
+            for priority in [false, true] {
+                for comment in [false, true] {
+                    for title in ["Title", ""] {
+                        for tags in ["", " :a:"] {
+                            let mut line = String::from("*");
+                            if todo {
+                                line.push_str(" TODO");
+                            }
+                            if priority {
+                                line.push_str(" [#B]");
+                            }
+                            if comment {
+                                line.push_str(" COMMENT");
+                            }
+                            if !title.is_empty() {
+                                line.push(' ');
+                                line.push_str(title);
+                            }
+                            if tags.is_empty() && line == "*" {
+                                line.push(' ');
+                            }
+                            line.push_str(tags);
+                            line.push('\n');
+                            check_prefix_inserts(&line);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    type PrefixFacts = (
+        Option<String>,
+        Option<PriorityAtom>,
+        bool,
+        String,
+        Option<Vec<String>>,
+    );
+
+    fn prefix_facts(doc: &Document) -> PrefixFacts {
+        let h = first_heading(doc);
+        (
+            h.todo_keyword()
+                .map(|k| doc.slice(k.syntax().text_range()).to_string()),
+            h.priority().map(|p| p.value()),
+            h.is_commented(),
+            doc.slice(h.part_content_range(HeadingPart::Title).expect("title"))
+                .to_string(),
+            h.tags()
+                .map(|t| t.iter().map(|g| g.name().to_string()).collect()),
+        )
+    }
+
+    fn check_prefix_inserts(src: &str) {
+        let doc = parse(src);
+        let before = prefix_facts(&doc);
+        let ops = [
+            (
+                before.0.is_none(),
+                set_todo(heading_ref(&doc), Some("DONE")),
+            ),
+            (
+                before.1.is_none(),
+                set_priority(heading_ref(&doc), Some(PriorityAtom::Letter('A'))),
+            ),
+            (!before.2, set_commented(heading_ref(&doc), true)),
+        ];
+        for (absent, op) in ops {
+            if !absent {
+                continue;
+            }
+            let (_, text) = compile_write(&doc, &op);
+            let after = prefix_facts(&parse(&text));
+            let mut want = before.clone();
+            match op {
+                Operation::SetTodoState { .. } => want.0 = Some("DONE".to_string()),
+                Operation::SetPriority { .. } => want.1 = Some(PriorityAtom::Letter('A')),
+                _ => want.2 = true,
+            }
+            assert_eq!(after, want, "{src:?} -> {text:?}");
+        }
     }
 
     #[test]

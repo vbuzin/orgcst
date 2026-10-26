@@ -7,6 +7,19 @@ a minor release may break the API.
 
 ## [Unreleased]
 
+### Fixed
+
+- A missing headline prefix is inserted where Org reads it. Org reads the
+  prefixes only in the order keyword, priority, `COMMENT`, but the insert
+  point of every missing one was the title's start, so `SetTodoState` on
+  `* [#A] Title` wrote `* [#A] TODO Title` (a title starting with `TODO`)
+  and `SetPriority` on `* COMMENT Title` wrote `* COMMENT [#A] Title`. A
+  missing prefix now goes before the first later prefix that is present:
+  `* TODO [#A] Title`, `* [#A] COMMENT Title`.
+- An insert at the title's start after a prefix with no space behind it
+  (`* TODO`, an empty title) leads with a space, so `SetPriority` writes
+  `* TODO [#A]` instead of `* TODO[#A]`.
+
 ## [0.1.1] - 2026-10-26
 
 ### Fixed

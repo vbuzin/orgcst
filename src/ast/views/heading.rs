@@ -356,11 +356,17 @@ fn headline_level(syntax: &SyntaxNode) -> usize {
 pub(crate) fn headline_part_span(syntax: &SyntaxNode, part: HeadingPart) -> PartSpan {
     match part {
         HeadingPart::Stars => PartSpan::Present(PresentPart::identical(stars_span(syntax))),
-        HeadingPart::Todo => optional_prefix_part(syntax, child_view::<TodoKeyword>(syntax)),
-        HeadingPart::Priority => optional_prefix_part(syntax, child_view::<Priority>(syntax)),
+        HeadingPart::Todo => match child_view::<TodoKeyword>(syntax) {
+            Some(n) => present_with_removal_after(syntax, n.range()),
+            None => absent_prefix(syntax, HeadingPart::Todo),
+        },
+        HeadingPart::Priority => match child_view::<Priority>(syntax) {
+            Some(n) => present_with_removal_after(syntax, n.range()),
+            None => absent_prefix(syntax, HeadingPart::Priority),
+        },
         HeadingPart::CommentMarker => match comment_node(syntax) {
             Some(n) => present_with_removal_after(syntax, n.text_range()),
-            None => absent_at_title_start(syntax),
+            None => absent_prefix(syntax, HeadingPart::CommentMarker),
         },
         HeadingPart::Title => {
             let title = heading_title(syntax);
@@ -387,9 +393,26 @@ pub(crate) fn headline_part_span(syntax: &SyntaxNode, part: HeadingPart) -> Part
     }
 }
 
-fn optional_prefix_part<T: AstNode>(syntax: &SyntaxNode, child: Option<T>) -> PartSpan {
-    match child {
-        Some(n) => present_with_removal_after(syntax, n.range()),
+/// Where a missing prefix goes: Org reads the prefixes only in the order
+/// keyword, priority, `COMMENT` (`org-complex-heading-regexp`), so a
+/// missing one goes before the first later prefix that is present, or at
+/// the title's start when none is. Anywhere else it would be read as the
+/// title's text.
+fn absent_prefix(syntax: &SyntaxNode, part: HeadingPart) -> PartSpan {
+    let later = match part {
+        HeadingPart::Todo => [
+            child_view::<Priority>(syntax).map(|n| n.range()),
+            comment_node(syntax).map(|n| n.text_range()),
+        ],
+        HeadingPart::Priority => [comment_node(syntax).map(|n| n.text_range()), None],
+        _ => [None, None],
+    };
+    match later.into_iter().flatten().next() {
+        Some(next) => PartSpan::Absent(InsertPoint::new(
+            next.start(),
+            Padding::None,
+            Padding::Space,
+        )),
         None => absent_at_title_start(syntax),
     }
 }
@@ -404,7 +427,14 @@ fn absent_at_title_start(syntax: &SyntaxNode) -> PartSpan {
     } else {
         Padding::Space
     };
-    PartSpan::Absent(InsertPoint::new(offset, Padding::None, trail))
+    // After a prefix with no space behind it (`* TODO`, an empty title),
+    // the insert needs its own lead.
+    let lead = if whitespace_ends_at(syntax, offset) {
+        Padding::None
+    } else {
+        Padding::Space
+    };
+    PartSpan::Absent(InsertPoint::new(offset, lead, trail))
 }
 
 fn title_fill_dest(syntax: &SyntaxNode) -> InsertPoint {
