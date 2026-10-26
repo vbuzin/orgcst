@@ -69,7 +69,12 @@ fn walk_inline(parser: &mut Parser, scope: OrgSyntaxKind) {
         while parser.current() != OrgSyntaxKind::EOF {
             let before = parser.progress();
             match inline::try_object(parser, allowed) {
-                None => parser.eat_any(),
+                // Stop inside a TEXT tile where a TEXT row could open there,
+                // else take the whole tile.
+                None => match inline::next_text_opener(parser, allowed) {
+                    Some(at) if parser.eat_to(at) => {}
+                    _ => parser.eat_any(),
+                },
                 Some(name) if parser.progress() == before => {
                     // Claimed without progress: a grammar bug. In release,
                     // treat it as unclaimed so the loop cannot spin; `name`

@@ -37,10 +37,11 @@
 //!   `InlineCallShape { layout: None }` and emit consumes only the bare
 //!   `call_` tokens, leaving no orphan `CALL_*` nodes.
 //!
-//! Word boundary before `call_` ([`atoms::at_word_start`]): region or line
-//! start, or WHITESPACE / INDENT / NEWLINE. This approximates Emacs `\<` with
-//! separator tokens rather than syntax-table word characters. Glued prefixes
-//! such as `xcall_` fail because the TEXT run is not literally `call`.
+//! Word boundary before `call_` ([`atoms::at_word_start`]): Emacs `\<`, so
+//! the character before is not a word character in Org's syntax table, or
+//! the cursor is at the region start. `(call_`, `:call_` and `"call_` open a
+//! call (the last mid-tile, where the walk stops for it); `xcall_` and
+//! `'call_` do not, because `x` and `'` are word characters.
 
 use crate::parser::grammar::drive::atoms;
 use crate::parser::{PairNewlines, Parser, Pos, TokenView};
@@ -515,9 +516,10 @@ mod tests {
         // At content/region start (BOF).
         assert!(at_call("call_foo(bar)"));
 
-        // After R_PAREN without separator: PRE fails unless region start is the call.
-        let mut p_glue = make_parser(")call_foo(bar)");
-        p_glue.eat_any(); // R_PAREN; cursor on "call"
+        // After `$` (its own token, and a word character in Org's syntax
+        // table): not a word start unless the region starts at the call.
+        let mut p_glue = make_parser("$call_foo(bar)");
+        p_glue.eat_any(); // DOLLAR; cursor on "call"
         assert!(!at_inline_babel_call(&p_glue));
         p_glue.with_inline_region_start(Some(crate::parser::Pos::from_index(1)), |p| {
             assert!(
@@ -530,41 +532,32 @@ mod tests {
         assert!(!at_call("xcall_foo(bar)"));
     }
 
-    /// The word-start context is deliberately narrower than Emacs `\<`.
-    ///
-    /// These cases would match under elisp word-boundary rules after
-    /// punctuation, but fail here because only region or line start and
-    /// WHITESPACE / INDENT / NEWLINE count as PRE. Widening the set changes
-    /// which prose parses as a call, so these pin the current behaviour.
+    /// Emacs `\<`: punctuation before `call_` is a word start, whether it
+    /// is its own token or sits inside the TEXT tile.
     #[test]
-    fn at_inline_babel_call_word_start_known_emacs_false_negatives() {
-        // After `(`: Emacs `\<` may treat this as a word start; this parser does not.
-        let p_paren = make_parser("(call_x()");
-        // L_PAREN TEXT("call") ...
-        assert_eq!(p_paren.current(), OrgSyntaxKind::L_PAREN);
-        assert!(
-            !at_call_after("(call_x()", 1),
-            "no PRE after L_PAREN (known gap vs Emacs \\<)"
-        );
-
-        // After `:` (e.g. property-ish glue).
-        let p_colon = make_parser(":call_x()");
-        assert_eq!(p_colon.current(), OrgSyntaxKind::COLON);
-        assert!(
-            !at_call_after(":call_x()", 1),
-            "no PRE after COLON (known gap vs Emacs \\<)"
-        );
-
-        // After `]` (closing bracket then call).
-        let p_br = make_parser("]call_x()");
-        assert_eq!(p_br.current(), OrgSyntaxKind::R_BRACKET);
-        assert!(
-            !at_call_after("]call_x()", 1),
-            "no PRE after R_BRACKET (known gap vs Emacs \\<)"
-        );
-
-        // Contrast: a space before the call is a separator and accepts.
-        assert!(at_call_after("x call_x()", 2));
+    fn at_inline_babel_call_word_start_follows_emacs() {
+        for src in ["(call_x()", ":call_x()", "]call_x()"] {
+            assert!(
+                at_call_after(src, 1),
+                "word start after punctuation in {src:?}"
+            );
+        }
+        for src in ["\"call_x()\n", "-call_x()\n", "x(call_x()\n"] {
+            let root = parse_document_tree(src);
+            assert_eq!(
+                nodes_of_kind(&root, OrgSyntaxKind::INLINE_BABEL_CALL).len(),
+                1,
+                "{src:?}"
+            );
+        }
+        // A word character before: no call (`'` is word class in Org).
+        for src in ["xcall_x()\n", "'call_x()\n", "\u{e9}call_x()\n"] {
+            let root = parse_document_tree(src);
+            assert!(
+                nodes_of_kind(&root, OrgSyntaxKind::INLINE_BABEL_CALL).is_empty(),
+                "{src:?}"
+            );
+        }
     }
 
     #[test]

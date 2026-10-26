@@ -38,8 +38,8 @@
 //! exclusive end and the parent loop emits the remainder as ordinary text, so
 //! lex tiling stays fixed and context-free. Progress checks compare
 //! [`Parser::progress`], which includes both. Mid-tile, the position
-//! predicates (`at_line_start`, `at_blank`, `at_region_start`,
-//! `after_separator`) are false; `prev_byte` accounts for the offset.
+//! predicates (`at_line_start`, `at_blank`, `at_region_start`) are false;
+//! `prev_byte` and `prev_char` account for the offset.
 //!
 //! ## Fields with invariants
 //!

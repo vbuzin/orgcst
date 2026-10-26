@@ -46,7 +46,7 @@
 //! Pure fragment measures (math, command, dollar) and the math-closer miss
 //! memo ([`MathCloserMissMemo`] on [`Parser`]) live in this module.
 
-use crate::parser::grammar::drive::{decide, frame};
+use crate::parser::grammar::drive::{atoms, decide, frame};
 use crate::parser::{LineView, Parser, Pos};
 use crate::syntax::OrgSyntaxKind;
 
@@ -649,16 +649,9 @@ fn is_single_dollar_border(c: char) -> bool {
     !matches!(c, ' ' | '\t' | '\n' | '\r' | ',' | '.')
 }
 
-/// `char-syntax` for bytes `0x00..=0x7F` in an `org-mode` buffer, as reported
-/// by Emacs.
-///
-/// Index is the byte. The class bytes are Emacs syntax: `.` punctuation,
-/// ` ` whitespace, `(` open, `)` close, `"` string, `w` word, `_` symbol.
-const DOLLAR_POST_SYNTAX: &[u8; 128] = b".........  .  .................. .\".ww_w()__._._wwwwwwwwww..(_)..wwwwwwwwwwwwwwwwwwwwwwwwww(_)._.wwwwwwwwwwwwwwwwwwwwwwwwww(_)_.";
-
 /// POST after closing single `$`, or true at end of region.
 ///
-/// Accepted classes from [`DOLLAR_POST_SYNTAX`]: punctuation `.`, whitespace
+/// Accepted classes from [`atoms::ASCII_SYNTAX`]: punctuation `.`, whitespace
 /// ` `, open `(`, close `)`, string `"`. Apostrophe is word class `w`;
 /// Org's follower regexp also matches a literal `'`. Symbol class `_` is
 /// not a follower. Non-ASCII is not in the table.
@@ -667,10 +660,9 @@ fn is_dollar_post(c: Option<char>) -> bool {
     let Some(c) = c else {
         return true;
     };
-    if !c.is_ascii() {
+    let Some(class) = atoms::ascii_syntax(c) else {
         return false;
-    }
-    let class = DOLLAR_POST_SYNTAX[c as usize];
+    };
     matches!(class, b'.' | b' ' | b'(' | b')' | b'"') || c == '\''
 }
 
@@ -1792,22 +1784,24 @@ mod tests {
     }
 
     /// One table for single-`$` boundaries. ASCII followers are
-    /// [`DOLLAR_POST_SYNTAX`]; border and opener rejects sit in the same
+    /// [`atoms::ASCII_SYNTAX`]; border and opener rejects sit in the same
     /// function.
     #[test]
     fn single_dollar_table() {
         assert_eq!(
-            DOLLAR_POST_SYNTAX[b'_' as usize], b'_',
+            atoms::ASCII_SYNTAX[b'_' as usize],
+            b'_',
             "underscore is symbol class"
         );
         assert_eq!(
-            DOLLAR_POST_SYNTAX[b'^' as usize], b'.',
+            atoms::ASCII_SYNTAX[b'^' as usize],
+            b'.',
             "caret is punctuation class"
         );
 
-        for (b, &class) in DOLLAR_POST_SYNTAX.iter().enumerate() {
+        for (b, &class) in atoms::ASCII_SYNTAX.iter().enumerate() {
             // The table is one slot per ASCII byte, so the index fits in `u8`.
-            let byte = u8::try_from(b).expect("DOLLAR_POST_SYNTAX is indexed by a byte");
+            let byte = u8::try_from(b).expect("ASCII_SYNTAX is indexed by a byte");
             let accept = matches!(class, b'.' | b' ' | b'(' | b')' | b'"') || byte == b'\'';
             let ch = char::from(byte);
             assert_eq!(is_dollar_post(Some(ch)), accept, "post {byte:#x}");

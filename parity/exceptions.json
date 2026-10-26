@@ -46,11 +46,5 @@
     "cites": "design",
     "fixture": "D-nesting-budget",
     "summary": "Past the nesting budget the tree flattens."
-  },
-  {
-    "id": "D-angle-rejected-plain",
-    "cites": "known bug",
-    "fixture": "D-angle-rejected-plain",
-    "summary": "A rejected angle continuation is not a plain link here. Org still reports https://x."
   }
 ]

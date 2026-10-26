@@ -7,6 +7,15 @@ a minor release may break the API.
 
 ## [Unreleased]
 
+### Fixed
+
+- Plain links, inline babel calls (`call_`) and inline source blocks
+  (`src_`) start wherever Org's word-start rule allows: after punctuation,
+  quotes and brackets, not only after whitespace. `(https://example.com)`,
+  `"https://example.com"`, `see:https://example.com` and `(call_f(1))` now
+  parse as Org parses them, as does the plain link inside a rejected angle
+  link (`<https://x` with `>` starting the next line).
+
 ## [0.1.0] - unreleased
 
 First public release.

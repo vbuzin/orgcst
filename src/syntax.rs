@@ -410,10 +410,7 @@ impl OrgSyntaxKind {
         self == Self::WHITESPACE || self.is_line_end()
     }
 
-    /// Separator token before an object: `WHITESPACE`, `INDENT`, or `NEWLINE`.
-    ///
-    /// Used by `Parser::after_separator` for the PRE condition of objects
-    /// (what may precede an opener). Excludes `EOF`.
+    /// Separator token: `WHITESPACE`, `INDENT`, or `NEWLINE`. Excludes `EOF`.
     #[inline]
     #[must_use]
     pub(crate) fn is_separator(self) -> bool {

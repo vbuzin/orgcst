@@ -68,11 +68,15 @@ impl Parser<'_> {
             .and_then(|start| (start > 0).then(|| self.source.as_bytes()[start - 1]))
     }
 
-    /// Whether the token before the cursor is `WHITESPACE`, `INDENT`, or
-    /// `NEWLINE`. False mid-tile.
+    /// The source character immediately before the cursor (mid-tile aware).
+    ///
+    /// [`Self::prev_byte`] for lookbehinds that need the whole character, such
+    /// as the word-character test before a word start. `None` at the start of
+    /// the source or when the cursor is not visible.
     #[inline]
-    pub(crate) fn after_separator(&self) -> bool {
-        !self.mid_tile_here() && self.peek_rel(-1).is_separator()
+    pub(crate) fn prev_char(&self) -> Option<char> {
+        self.source_start_here()
+            .and_then(|start| self.source[..start].chars().next_back())
     }
 
     /// Whether the cursor sits at the active inline region start.
@@ -193,7 +197,7 @@ mod tests {
         let mut p = make_parser("* A :tag:\nB");
         assert_eq!(p.current(), OrgSyntaxKind::STAR);
         assert_eq!(p.prev_byte(), None, "BOF: no byte before first token");
-        assert!(!p.after_separator());
+        assert_eq!(p.prev_char(), None, "BOF: no char before first token");
         assert!(p.at_line_start());
 
         p.eat_any(); // STAR
@@ -202,7 +206,7 @@ mod tests {
         p.eat_any(); // WS
         assert_eq!(p.current(), OrgSyntaxKind::COLON);
         assert_eq!(p.prev_byte(), Some(b' '));
-        assert!(p.after_separator());
+        assert_eq!(p.prev_char(), Some(' '));
         assert!(!p.at_line_start());
 
         while p.current() != OrgSyntaxKind::EOF
@@ -212,44 +216,8 @@ mod tests {
         }
         assert_eq!(p.current(), OrgSyntaxKind::TEXT);
         assert_eq!(p.text(), "B");
-        assert!(p.after_separator()); // after NEWLINE
+        assert_eq!(p.prev_char(), Some('\n'));
         assert!(p.at_line_start());
-    }
-
-    #[test]
-    fn after_separator_false_mid_tile() {
-        let mut p = make_parser("ab. ");
-        assert!(p.leaf_len(OrgSyntaxKind::TEXT, 2));
-        assert!(p.progress().mid_offset() > 0);
-        assert!(!p.after_separator(), "mid-tile PRE is not separator-based");
-        assert_eq!(p.prev_byte(), Some(b'b'));
-    }
-
-    /// `Parser::after_separator` is wide (WHITESPACE | INDENT | NEWLINE);
-    /// `TokenView::after_space` is narrow (WHITESPACE only). Grammar rules
-    /// choose between them, so they must stay different.
-    #[test]
-    fn after_separator_is_wider_than_after_space() {
-        // WHITESPACE: both agree.
-        let mut ws = make_parser("a b");
-        ws.eat_any(); // TEXT "a"
-        ws.eat_any(); // WHITESPACE
-        assert!(ws.after_separator());
-        assert!(ws.token_view(ws.cursor()).expect("b").after_space());
-
-        // INDENT and NEWLINE: wide only.
-        for (src, skip, label) in [("  x", 1usize, "INDENT"), ("a\nb", 2, "NEWLINE")] {
-            let mut p = make_parser(src);
-            for _ in 0..skip {
-                p.eat_any();
-            }
-            assert_eq!(p.current(), OrgSyntaxKind::TEXT, "{label}");
-            assert!(p.after_separator(), "{label} is a separator");
-            assert!(
-                !p.token_view(p.cursor()).expect("text").after_space(),
-                "after_space is WHITESPACE-only, not {label}"
-            );
-        }
     }
 
     // -----------------------------------------------------------------------

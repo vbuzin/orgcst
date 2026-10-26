@@ -116,6 +116,15 @@ probes for a shape and then emits it. Where `org-element--object-lex` has a
 branch rather than a fallthrough (`_` tries underline before subscript; `\\`
 goes to line break and nowhere else), the row reproduces the branch.
 
+**Word starts are Emacs's `\<`.** Plain links, `call_` and `src_` open only
+where the character before is not a word character in Org's syntax table
+(`drive::atoms::is_word_char`, from a table probed in the parity image), or
+at the region start. The lexer keeps most punctuation inside text tokens, so
+such a start can fall inside one (`"https:`). When no row claims at a text
+token, the walk stops inside it at the next word start where one of those
+prefixes begins (`inline::next_text_opener`), and takes the whole token
+otherwise, so ordinary prose stays one token per run.
+
 **Positions are typed and absolute.** Grammar code holds `Pos` (a token)
 and `LineId` (a line), never signed offsets. They stay valid across
 consumption, because the token and line tables never change during a parse.

@@ -35,6 +35,11 @@
 //!   on `_`, and second-byte dispatch on `\`.
 //! - TEXT-prefix row co-owns `call_` and `src_` (call then src) before the
 //!   plain-link TEXT row so PATHPLAIN never competes with those openers.
+//! - TEXT rows open at an Emacs `\<` word start, which can fall inside a TEXT
+//!   tile (`"https:`, `-call_`): the lexer keeps most punctuation in TEXT.
+//!   [`next_text_opener`] tells the walk where to stop inside a tile so those
+//!   rows get a turn. It stops only where a row's prefix is present, so a tile
+//!   with no candidate stays one token in the tree.
 //!
 //! **Progress:** each step of the walk in `drive::region` either emits an
 //! object through a successful probe and parse (a parse may leave a bare
@@ -61,6 +66,7 @@ use super::{
     macros, markup, script, target, timestamp,
 };
 use crate::parser::Parser;
+use crate::parser::grammar::drive::atoms;
 use crate::syntax::{MARKUP_OBJECTS, ObjectSet, OrgSyntaxKind};
 
 /// Copy payload from a successful object probe (the object counterpart of the
@@ -445,8 +451,8 @@ static INLINE_OBJECTS: &[InlineCandidate] = &[
 /// Try one object at the cursor under `allowed`.
 ///
 /// Returns the candidate row name when a probe claims (and emit has run). The
-/// walk in `drive::region` advances with `eat_any` on `None` or on a stalled
-/// claim. Does not open a region or charge nesting - that is the walk's job.
+/// walk in `drive::region` advances on `None` (to [`next_text_opener`] or
+/// with `eat_any`) and with `eat_any` on a stalled claim. Does not open a region or charge nesting - that is the walk's job.
 pub(crate) fn try_object(parser: &mut Parser, allowed: ObjectSet) -> Option<&'static str> {
     let current = parser.current();
     for c in INLINE_OBJECTS {
@@ -460,6 +466,50 @@ pub(crate) fn try_object(parser: &mut Parser, allowed: ObjectSet) -> Option<&'st
             shape.parse(parser);
             return Some(c.name);
         }
+    }
+    None
+}
+
+/// Absolute byte inside the current TEXT tile, after the cursor, at which a
+/// TEXT row could open; `None` when there is no such place.
+///
+/// A place qualifies when it is an Emacs `\<` word start (the character
+/// before is not a word character, the one at it is) and the source there
+/// begins with `call_`, `src_` or a registered `TYPE:` that `allowed`
+/// admits. That is the TEXT rows' prefix test without their full measure, so
+/// the walk splits a tile only where a row may claim. The cursor's own
+/// position has already been tried by [`try_object`] and is not returned.
+pub(crate) fn next_text_opener(parser: &Parser, allowed: ObjectSet) -> Option<usize> {
+    if parser.current() != OrgSyntaxKind::TEXT {
+        return None;
+    }
+    let call_ok = allowed.contains(OrgSyntaxKind::INLINE_BABEL_CALL);
+    let src_ok = allowed.contains(OrgSyntaxKind::INLINE_SRC_BLOCK);
+    let link_ok = allowed.contains(OrgSyntaxKind::LINK);
+    if !(call_ok || src_ok || link_ok) {
+        return None;
+    }
+    let start = parser.source_start_here()?;
+    let tile = parser.text();
+    let rest = parser.rest_source();
+    let mut chars = tile.char_indices();
+    let (_, mut prev) = chars.next()?;
+    for (i, c) in chars {
+        if !atoms::is_word_char(prev) && atoms::is_word_char(c) {
+            let at = &rest[i..];
+            if (call_ok && at.starts_with("call_"))
+                || (src_ok && at.starts_with("src_"))
+                || (link_ok
+                    && parser
+                        .config
+                        .link_types()
+                        .match_protocol_prefix(at)
+                        .is_some())
+            {
+                return Some(start + i);
+            }
+        }
+        prev = c;
     }
     None
 }
@@ -988,5 +1038,37 @@ mod tests {
             let _ = probe(&p, STD);
             assert_eq!(p.cursor(), before, "probe must not advance for {src:?}");
         }
+    }
+
+    /// The walk stops inside a TEXT tile only where a TEXT row's prefix sits
+    /// at a word start, so other prose keeps one token per tile.
+    #[test]
+    fn next_text_opener_stops_only_at_candidates() {
+        let all = restrictions(OrgSyntaxKind::PARAGRAPH);
+        let at = |src: &str| next_text_opener(&make_parser(src), all);
+        assert_eq!(at("\"https://x.com\""), Some(1));
+        assert_eq!(at("-call_f()"), Some(1));
+        assert_eq!(at("\"src_sh{x}"), Some(1));
+        assert_eq!(
+            at("x.y.\"https://x"),
+            Some(5),
+            "first candidate, not the first word start"
+        );
+        assert_eq!(at("well-known"), None, "word start without a prefix");
+        assert_eq!(at("xhttps://x"), None, "a word character before");
+        assert_eq!(at("https://x"), None, "the cursor itself is not returned");
+        assert_eq!(
+            next_text_opener(&make_parser("\"https://x"), ObjectSet::EMPTY),
+            None,
+            "no TEXT row admitted"
+        );
+
+        // Prose with no candidate stays one TEXT token in the tree.
+        let root = crate::tests::parse_document_tree("e.g. well-known\n");
+        let texts = root
+            .descendants_with_tokens()
+            .filter(|e| e.kind() == OrgSyntaxKind::TEXT)
+            .count();
+        assert_eq!(texts, 2, "`e.g.` and `well-known` are one tile each");
     }
 }

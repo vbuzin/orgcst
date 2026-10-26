@@ -926,28 +926,24 @@ mod tests {
             "indented non-`>` content continuation must form a link"
         );
 
-        // First non-indent of continuation is `>`: not a link (org rejects).
-        let bad_indent_gt = "a <https://x\n   >\n";
-        assert_eq!(
-            nodes_of_kind(&parse_document_tree(bad_indent_gt), OrgSyntaxKind::LINK).len(),
-            0,
-            "`\\n   >` must not form an angle link"
-        );
-
-        let bad_bare_gt = "a <https://x\n>\n";
-        assert_eq!(
-            nodes_of_kind(&parse_document_tree(bad_bare_gt), OrgSyntaxKind::LINK).len(),
-            0,
-            "`\\n>` must not form an angle link"
-        );
-
-        // Blank continuation: full document must not emit LINK.
-        let bad_blank = "a <https://x\n\n>\n";
-        assert_eq!(
-            nodes_of_kind(&parse_document_tree(bad_blank), OrgSyntaxKind::LINK).len(),
-            0,
-            "blank continuation must not form an angle link"
-        );
+        // First non-indent of a continuation is `>`, or the continuation is
+        // blank: no angle link. As in Org, the path after `<` is then a plain
+        // link that stops at the newline.
+        for (src, why) in [
+            ("a <https://x\n   >\n", "`\\n   >`"),
+            ("a <https://x\n>\n", "`\\n>`"),
+            ("a <https://x\n\n>\n", "blank continuation"),
+        ] {
+            let links: Vec<String> = nodes_of_kind(&parse_document_tree(src), OrgSyntaxKind::LINK)
+                .iter()
+                .map(|n| n.text().to_string())
+                .collect();
+            assert_eq!(
+                links,
+                ["https://x"],
+                "{why}: plain link only, no angle link"
+            );
+        }
     }
 
     #[test]
@@ -1145,13 +1141,13 @@ mod tests {
 
     #[test]
     fn at_plain_link_content_start_synthetic_region() {
-        // After R_PAREN without separator: PRE fails unless region start is the path.
-        // Same region-start check as the babel and markup tests.
-        let mut p = make_parser(")https://x.com");
-        // tokens: R_PAREN then protocol path starting at abs 1.
-        assert_eq!(p.current(), OrgSyntaxKind::R_PAREN);
+        // After `$` (its own token, and a word character in Org's syntax
+        // table): no word start unless the region starts at the path. Same
+        // region-start check as the babel tests.
+        let mut p = make_parser("$https://x.com");
+        assert_eq!(p.current(), OrgSyntaxKind::DOLLAR);
         p.eat_any(); // cursor on the protocol TEXT
-        assert!(!at_plain_link(&p), "no PRE after R_PAREN without region");
+        assert!(!at_plain_link(&p), "no word start after `$` without region");
         p.with_inline_region_start(Some(crate::parser::Pos::from_index(1)), |pp| {
             assert!(
                 at_plain_link(pp),
@@ -1253,5 +1249,76 @@ mod tests {
             .next()
             .expect("plain link inside bold");
         assert_eq!(link.text().to_string(), "https://x.com");
+    }
+
+    /// Plain links after punctuation, as Org reports them (probed in the
+    /// parity image). The character before the protocol decides: a word
+    /// character blocks the link, anything else allows it.
+    #[test]
+    fn plain_link_word_start_matches_org() {
+        let linked = [
+            "(https://x.com)",
+            "x(https://x.com)",
+            "\"https://x.com\"",
+            "foo:https://x.com",
+            "a<https://x.com",
+            "<https://x.com",
+            "-https://x.com",
+            "_https://x.com",
+            "\u{ab}https://x.com",
+            "\u{2014}https://x.com",
+            "\u{2019}https://x.com",
+            "\u{a9}https://x.com",
+        ];
+        for src in linked {
+            let src = format!("{src}\n");
+            assert_eq!(
+                first_link_path(&src).as_deref(),
+                Some("https://x.com"),
+                "{src:?}"
+            );
+            assert_eq!(
+                tree_text(&parse_document_tree(&src)),
+                src,
+                "lossless {src:?}"
+            );
+        }
+        for src in [
+            "abchttps://x.com",
+            "\u{e9}https://x.com",
+            "'https://x.com",
+            "1https://x.com",
+            "$https://x.com",
+        ] {
+            let src = format!("{src}\n");
+            assert_eq!(link_count(&src), 0, "{src:?}");
+        }
+    }
+
+    /// A rejected angle link falls back to the plain link inside it, as in
+    /// Org, and an edit that removes the word character before a protocol
+    /// reaches the same tree through `apply` as through a cold parse.
+    #[test]
+    fn plain_link_after_rejected_angle_and_after_edit() {
+        let src = "Not a link <https://x\n>.\n";
+        assert_eq!(first_link_path(src).as_deref(), Some("https://x"));
+
+        let before = parse("See xhttps://x.com now.\n");
+        assert!(before.links().next().is_none());
+        let edit = crate::Edit {
+            range: crate::TextRange::new(4.into(), 5.into()),
+            replacement: "(".to_string(),
+        };
+        let edits = crate::EditSet::new(before.source(), vec![edit]).expect("valid edit");
+        let after = before.apply(&edits);
+        let cold = parse(after.source());
+        let shape = |doc: &crate::Document| {
+            doc.root()
+                .descendants_with_tokens()
+                .map(|e| (e.kind(), e.text_range()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(shape(&after), shape(&cold), "apply and cold parse agree");
+        assert_eq!(after.links().count(), 1);
     }
 }

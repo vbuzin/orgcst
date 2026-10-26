@@ -1,0 +1,9 @@
+Links after punctuation: (https://example.com/a), "https://example.com/b",
+see:https://example.com/c, a<https://example.com/d and -https://example.com/e.
+Also «https://example.com/f » and —https://example.com/g.
+
+No link after a word character: xhttps://example.com/h, éhttps://example.com/i,
+'https://example.com/j, 1https://example.com/k and $https://example.com/l.
+
+Calls and sources after punctuation: (call_f(1)), "src_sh{echo x}" and -call_g(2).
+Not after a word character: xcall_f(1) and 'src_sh{echo y}.

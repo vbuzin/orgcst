@@ -270,7 +270,8 @@ mod tests {
         assert!(at_src_after("line\nsrc_py{x}", 2));
         assert!(at_src("src_py{x}"));
 
-        let mut p_glue = make_parser(")src_py{x}");
+        // `$` is its own token and a word character in Org's syntax table.
+        let mut p_glue = make_parser("$src_py{x}");
         p_glue.eat_any();
         assert!(!at_inline_src(&p_glue));
         p_glue.with_inline_region_start(Some(crate::parser::Pos::from_index(1)), |p| {
@@ -282,23 +283,31 @@ mod tests {
         assert!(!at_src("xsrc_py{x}"));
     }
 
-    /// The word-start rule is deliberately narrower than Emacs `\<`, as for
-    /// inline babel calls.
+    /// Emacs `\<`, as for inline babel calls: punctuation before `src_` is a
+    /// word start, as its own token or inside the TEXT tile.
     #[test]
-    fn probe_word_start_known_emacs_false_negatives() {
-        assert!(
-            !at_src_after("(src_py{x}", 1),
-            "no PRE after L_PAREN (known gap vs Emacs \\<)"
-        );
-        assert!(
-            !at_src_after(":src_py{x}", 1),
-            "no PRE after COLON (known gap vs Emacs \\<)"
-        );
-        assert!(
-            !at_src_after("]src_py{x}", 1),
-            "no PRE after R_BRACKET (known gap vs Emacs \\<)"
-        );
-        assert!(at_src_after("x src_py{x}", 2));
+    fn probe_word_start_follows_emacs() {
+        for src in ["(src_py{x}", ":src_py{x}", "]src_py{x}"] {
+            assert!(
+                at_src_after(src, 1),
+                "word start after punctuation in {src:?}"
+            );
+        }
+        for src in ["\"src_sh{x}\n", "-src_sh{x}\n"] {
+            let root = parse_document_tree(src);
+            assert_eq!(
+                nodes_of_kind(&root, OrgSyntaxKind::INLINE_SRC_BLOCK).len(),
+                1,
+                "{src:?}"
+            );
+        }
+        for src in ["xsrc_sh{x}\n", "'src_sh{x}\n"] {
+            let root = parse_document_tree(src);
+            assert!(
+                nodes_of_kind(&root, OrgSyntaxKind::INLINE_SRC_BLOCK).is_empty(),
+                "{src:?}"
+            );
+        }
     }
 
     #[test]

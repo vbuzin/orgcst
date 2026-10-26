@@ -13,28 +13,63 @@ pub(crate) fn space_or_line_end(t: TokenView) -> bool {
     matches!(t.next_byte(), None | Some(b' ' | b'\n' | b'\r'))
 }
 
-/// Word-start context at the cursor for inline objects, approximating Emacs
-/// `\<`: line start, inline region start, or a separator token (WHITESPACE /
-/// INDENT / NEWLINE) before the cursor.
+/// `char-syntax` for bytes `0x00..=0x7F` in an `org-mode` buffer, as reported
+/// by Emacs from the parity image.
 ///
-/// Not full syntax-table word chars: punctuation such as `(` / `:` before
-/// `call_` is a known false negative.
+/// Index is the byte. The class bytes are Emacs syntax: `.` punctuation,
+/// ` ` whitespace, `(` open, `)` close, `"` string, `w` word, `_` symbol.
+/// Note the word members that are not letters or digits: `$`, `%` and `'`.
+pub(crate) const ASCII_SYNTAX: &[u8; 128] = b".........  .  .................. .\".ww_w()__._._wwwwwwwwww..(_)..wwwwwwwwwwwwwwwwwwwwwwwwww(_)._.wwwwwwwwwwwwwwwwwwwwwwwwww(_)_.";
+
+/// Emacs syntax class of an ASCII character ([`ASCII_SYNTAX`]); `None` for
+/// non-ASCII.
+#[inline]
+pub(crate) fn ascii_syntax(c: char) -> Option<u8> {
+    c.is_ascii().then(|| ASCII_SYNTAX[c as usize])
+}
+
+/// Whether `c` is a word constituent in an `org-mode` buffer.
+///
+/// ASCII reads [`ASCII_SYNTAX`]. Non-ASCII letters and digits are word
+/// characters and everything else is not, which is what Emacs reports for
+/// the samples probed (U+00E9, U+4E2D and U+0661 are word; U+00AB, U+2014,
+/// U+2019, U+00A9 and U+20AC are not). The non-ASCII table is not vendored.
+#[inline]
+pub(crate) fn is_word_char(c: char) -> bool {
+    match ascii_syntax(c) {
+        Some(class) => class == b'w',
+        None => c.is_alphanumeric(),
+    }
+}
+
+/// Emacs `\<` at the cursor: a word character follows, and the character
+/// before is not one.
+///
+/// The inline region start counts as a word start whatever precedes it,
+/// because Org parses objects with the buffer narrowed to the region. The
+/// test is per character, so it holds mid-tile too (`"https:`, `(call_`).
 #[inline]
 pub(crate) fn at_word_start(parser: &Parser) -> bool {
-    parser.at_line_start() || parser.at_region_start() || parser.after_separator()
+    let word_follows = parser
+        .rest_source()
+        .chars()
+        .next()
+        .is_some_and(is_word_char);
+    word_follows && (parser.at_region_start() || !parser.prev_char().is_some_and(is_word_char))
 }
 
 /// Fixed opener: TEXT(literal) + UNDERSCORE at the cursor.
 ///
 /// Returns the absolute position of the first name token (third token), or
 /// the visible limit when no third token exists. Case-sensitive equality on
-/// the TEXT tile. Inline-object use only (`call_` / `src_`); not used by the
+/// the rest of the TEXT tile from the cursor, so the opener matches mid-tile
+/// (`"call_` once the walk stops after the quote). Inline-object use only (`call_` / `src_`); not used by the
 /// `#+call:` element path. Line-bounded pairs use
 /// [`Parser::measure_paired_at`](crate::parser::Parser::measure_paired_at).
 #[inline]
 pub(crate) fn fixed_underscore_prefix(parser: &Parser, literal: &str) -> Option<Pos> {
     let t0 = parser.here()?;
-    if t0.kind() != OrgSyntaxKind::TEXT || t0.text() != literal {
+    if t0.kind() != OrgSyntaxKind::TEXT || parser.text() != literal {
         return None;
     }
     if t0.kind_at(1) != OrgSyntaxKind::UNDERSCORE {
@@ -424,5 +459,50 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Word characters as Emacs reports them in an `org-mode` buffer (probed
+    /// in the parity image): `$`, `%` and `'` are word class, and most other
+    /// ASCII punctuation is not. Non-ASCII letters and digits are words.
+    #[test]
+    fn word_chars_follow_org_syntax() {
+        for c in [
+            'a', 'Z', '0', '$', '%', '\'', '\u{e9}', '\u{4e2d}', '\u{661}',
+        ] {
+            assert!(super::is_word_char(c), "{c:?} is a word char");
+        }
+        for c in [
+            ' ', '\n', '(', ')', '<', '"', '-', '_', '.', ':', '`', '@', '*', '\u{ab}', '\u{2014}',
+            '\u{2019}', '\u{a9}', '\u{20ac}',
+        ] {
+            assert!(!super::is_word_char(c), "{c:?} is not a word char");
+        }
+        assert_eq!(super::ascii_syntax('_'), Some(b'_'));
+        assert_eq!(super::ascii_syntax('\u{e9}'), None);
+    }
+
+    /// `\<` needs a word character after the cursor and none before it,
+    /// except at the inline region start; it holds mid-tile.
+    #[test]
+    fn at_word_start_is_emacs_word_start() {
+        assert!(super::at_word_start(&make_parser("abc")), "start of source");
+        let mut after_paren = make_parser("(abc");
+        after_paren.eat_any();
+        assert!(super::at_word_start(&after_paren), "after `(`");
+        let mut after_dollar = make_parser("$abc");
+        after_dollar.eat_any();
+        assert!(!super::at_word_start(&after_dollar), "after `$`");
+        let mut before_space = make_parser("a b");
+        before_space.eat_any();
+        assert!(!super::at_word_start(&before_space), "a space follows");
+
+        // Mid-tile: `"` and `-` stay in the TEXT tile.
+        let mut quote = make_parser("\"abc");
+        assert!(quote.eat_to(1));
+        assert!(quote.progress().mid_offset() > 0);
+        assert!(super::at_word_start(&quote), "after `\"` inside the tile");
+        let mut glued = make_parser("xabc");
+        assert!(glued.eat_to(1));
+        assert!(!super::at_word_start(&glued), "after `x` inside the tile");
     }
 }
