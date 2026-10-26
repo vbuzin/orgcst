@@ -1,0 +1,13 @@
+Trailing punctuation: https://example.com/a* and https://example.com/b_ and
+https://example.com/c% then https://example.com/d$, https://example.com/e~ and
+https://example.com/f= or https://example.com/g# and https://example.com/h@.
+Kept at the end: https://example.com/i- and https://example.com/j/ here.
+Several: https://example.com/k.,; and https://example.com/l.- and https:--.
+
+Groups: https://en.wikipedia.org/wiki/Foo_(bar) and https://example.com/m[1].
+Mixed closers https://example.com/n(o] and nested https://example.com/p(q(r)s)t.
+Too deep https://example.com/u(((v))) and unclosed https://example.com/w(x end.
+Spaced https://example.com/y(z z) and https:(a)b but not https:(a) or https:a.
+
+Non-ASCII: https://example.com/café and https://example.com/z» and
+https://example.com/q’s end.

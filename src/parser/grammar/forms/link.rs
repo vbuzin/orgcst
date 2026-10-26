@@ -15,9 +15,10 @@
 //!   completed `LINK`.
 //! - Angle: probe carries closer `Pos` (protocol + `>` under org-link-angle-re
 //!   continuation rules); parse emits without rescanning for the closer.
-//! - Plain: probe is the full PATHPLAIN measure (trail strip + POST). Emit is
-//!   `leaf_len` only; when probe is `None` the dispatcher eats one token.
-//!   Cursor may sit mid-tile; trail punctuation is ordinary parent text.
+//! - Plain: probe is the full PATHPLAIN measure (org-link-plain-re's path,
+//!   see the PATHPLAIN section). Emit is `leaf_len` only; when probe is
+//!   `None` the dispatcher eats one token. Cursor may sit mid-tile; trailing
+//!   punctuation the path does not take is ordinary parent text.
 //!
 //! Path commit strategy is form-specific (bracket open-marker, angle
 //! open-marker, plain measured leaf); the shared invariant is no completed
@@ -26,75 +27,120 @@
 use crate::DiagnosticKind;
 use crate::parser::event::Marker;
 use crate::parser::grammar::drive::{atoms, region};
-use crate::parser::{Parser, Pos, TokenView};
+use crate::parser::{ParseConfig, Parser, Pos, TokenView};
 use crate::syntax::OrgSyntaxKind;
 
 // ---------------------------------------------------------------------------
-// Character classes (PATHPLAIN / plain PRE-POST) - no regex
+// PATHPLAIN - org-link-plain-re's path, without regex
 // ---------------------------------------------------------------------------
+//
+// The path is one or more units followed by a final unit:
+//
+//   unit   = a character outside `][ \t\n()<>` | group
+//   group  = opener (a character outside that set | inner)* closer
+//   inner  = opener (a character outside that set)* closer
+//   final  = a non-punctuation, non-space character | `-` | `/` | group
+//
+// with openers `<([` and closers `])>`, mixed freely (`(b]` is a group).
+// Groups nest one level. The regexp takes the longest match, so the path is
+// the longest run of at least two units whose last unit may be final.
+// `\r` also stops a unit: the lexer makes it a line end.
 
-const PATHPLAIN_TRAIL_STRIP: &[u8] = b".,;:?!'\"";
-
-fn is_pathplain_ws(b: u8) -> bool {
-    matches!(b, b' ' | b'\t' | b'\n' | b'\r')
+/// A character that is a unit on its own: not a bracket, not whitespace.
+fn is_path_char(c: char) -> bool {
+    !matches!(
+        c,
+        '[' | ']' | '(' | ')' | '<' | '>' | ' ' | '\t' | '\n' | '\r'
+    )
 }
 
-fn is_plain_post_ok(next: Option<u8>) -> bool {
-    match next {
-        None => true,
-        Some(b) => !(b.is_ascii_alphanumeric() || b == b'_'),
+fn is_group_open(c: char) -> bool {
+    matches!(c, '<' | '(' | '[')
+}
+
+fn is_group_close(c: char) -> bool {
+    matches!(c, '>' | ')' | ']')
+}
+
+/// Whether a one-character unit may end the path.
+///
+/// Org's `[^[:punct:][:space:]\n]`, plus `-` and `/`. For ASCII, Emacs's
+/// `[:punct:]` is every printable character that is not a letter or digit,
+/// and `[:space:]` is whitespace syntax, so control characters other than
+/// whitespace qualify. For other characters, `[:punct:]` is anything without
+/// word syntax.
+fn is_path_final_char(c: char) -> bool {
+    match c {
+        '-' | '/' => true,
+        c if c.is_ascii() => {
+            c.is_ascii_alphanumeric()
+                || (c.is_ascii_control() && atoms::ascii_syntax(c) != Some(b' '))
+        }
+        c => atoms::is_word_char(c),
     }
 }
 
-/// Exclusive end byte of PATHPLAIN starting at `p0`, or None if empty/invalid.
-pub(crate) fn pathplain_end(src: &str, p0: usize) -> Option<usize> {
-    let b = src.as_bytes();
-    if p0 >= b.len() {
-        return None;
-    }
-    let mut depth = 0i32;
-    let mut i = p0;
-    while i < b.len() {
-        let c = b[i];
-        if depth == 0 && is_pathplain_ws(c) {
-            break;
-        }
-        if depth == 0 && matches!(c, b'[' | b']' | b'<' | b'>') {
-            break;
-        }
-        if c == b'(' {
-            if depth >= 2 {
-                break;
+/// Byte length of the group opening at `at`, or `None` if none closes there.
+fn group_len(src: &str, at: usize) -> Option<usize> {
+    let mut chars = src[at..].char_indices();
+    let (_, open) = chars.next()?;
+    debug_assert!(is_group_open(open));
+    let mut inner = false;
+    for (i, c) in chars {
+        if is_group_close(c) {
+            if !inner {
+                return Some(i + c.len_utf8());
             }
-            depth += 1;
-            i += 1;
-            continue;
-        }
-        if c == b')' {
-            if depth == 0 {
-                break;
+            inner = false;
+        } else if is_group_open(c) {
+            if inner {
+                return None;
             }
-            depth -= 1;
-            i += 1;
-            continue;
-        }
-        if depth > 0 && (is_pathplain_ws(c) || matches!(c, b'[' | b']' | b'<' | b'>')) {
+            inner = true;
+        } else if !is_path_char(c) {
             return None;
         }
-        // depth 0 brackets already broke above; depth>0 ordinary content falls through.
-        i += 1;
     }
-    if depth != 0 {
-        return None;
+    None
+}
+
+/// Exclusive end byte of PATHPLAIN starting at `p0` (just after `TYPE:`),
+/// or `None` when no path matches there.
+pub(crate) fn pathplain_end(src: &str, p0: usize) -> Option<usize> {
+    let mut i = p0;
+    let mut units = 0usize;
+    let mut end = None;
+    while let Some(c) = src.get(i..).and_then(|rest| rest.chars().next()) {
+        let (len, may_end) = if is_group_open(c) {
+            match group_len(src, i) {
+                Some(len) => (len, true),
+                None => break,
+            }
+        } else if is_path_char(c) {
+            (c.len_utf8(), is_path_final_char(c))
+        } else {
+            break;
+        };
+        i += len;
+        units += 1;
+        if units >= 2 && may_end {
+            end = Some(i);
+        }
     }
-    let mut end = i;
-    while end > p0 && PATHPLAIN_TRAIL_STRIP.contains(&b[end - 1]) {
-        end -= 1;
-    }
-    if end == p0 {
-        return None;
-    }
-    Some(end)
+    end
+}
+
+/// Whether `path` reads back as one whole plain link: a registered `TYPE:`
+/// and a PATHPLAIN that ends exactly at the end of `path`.
+///
+/// Operations check this before writing a plain link, so a path whose tail
+/// Org would leave outside the link (`https://x.com/a*`) is refused rather
+/// than written as a shorter link. What precedes the link is not checked.
+pub(crate) fn is_whole_plain_path(path: &str, config: &ParseConfig) -> bool {
+    config
+        .link_types()
+        .match_protocol_prefix(path)
+        .is_some_and(|(_, through_colon)| pathplain_end(path, through_colon) == Some(path.len()))
 }
 
 // ---------------------------------------------------------------------------
@@ -295,36 +341,14 @@ fn plain_protocol_open(parser: &Parser) -> Option<usize> {
     Some(through_colon)
 }
 
-/// True when the first path body byte after `TYPE:` is a non-empty PATHPLAIN start
-/// (not EOF, not ws, not `[]<>`).
-// Each arm is one PATHPLAIN rejection (end, whitespace, brackets).
-#[allow(clippy::match_same_arms)]
-fn plain_body_start_ok(s: &str, through_colon: usize) -> bool {
-    match s.as_bytes().get(through_colon) {
-        None => false,
-        Some(c) if is_pathplain_ws(*c) => false,
-        Some(b'[' | b']' | b'<' | b'>') => false,
-        Some(_) => true,
-    }
-}
-
-/// Full plain-path measure at the cursor: opener + PATHPLAIN (+ defensive POST).
+/// Full plain-path measure at the cursor: opener + PATHPLAIN.
 ///
-/// Returns exclusive path length from the visible start, or `None`.
+/// Returns exclusive path length from the visible start, or `None`. Org has
+/// no condition on what follows the path: the regexp already stops before
+/// any trailing punctuation it does not take.
 fn measure_plain_path(parser: &Parser) -> Option<usize> {
     let through_colon = plain_protocol_open(parser)?;
-    let s = parser.rest_source();
-    if !plain_body_start_ok(s, through_colon) {
-        return None;
-    }
-    let path_len = pathplain_end(s, through_colon)?;
-    // POST is defensive: with the current PATHPLAIN stop set the next byte
-    // cannot be alnum or `_` (it would still be inside the path), but the
-    // check keeps a change to the stop set from silently accepting a bad POST.
-    if !is_plain_post_ok(s.as_bytes().get(path_len).copied()) {
-        return None;
-    }
-    Some(path_len)
+    pathplain_end(parser.rest_source(), through_colon)
 }
 
 /// Pure probe: full PATHPLAIN measure (no broader cheap prefilter).
@@ -345,7 +369,7 @@ pub(crate) fn at_plain_link(parser: &Parser) -> bool {
 /// Parse plain link from a measured path length (no remeasure).
 ///
 /// Recipe: `start` -> `leaf_len(path_len)` -> `complete(LINK)`. Path end is
-/// exclusive of `PATHPLAIN_TRAIL_STRIP` (`.`, `,`, etc.). Mid-tile ends leave
+/// exclusive of trailing punctuation the path cannot end on. Mid-tile ends leave
 /// the cursor on the trail; the parent object loop emits trail as ordinary text.
 pub(crate) fn parse_plain(parser: &mut Parser, shape: PlainLinkShape) {
     let marker = parser.start();
@@ -809,32 +833,46 @@ mod tests {
 
     #[test]
     fn pathplain_end_edges() {
-        // Empty / invalid start.
+        // Empty, out of range, or a non-unit at the start.
         assert_eq!(pathplain_end("", 0), None);
         assert_eq!(pathplain_end("abc", 10), None);
-        // Depth-0 whitespace breaks before any path body.
         assert_eq!(pathplain_end(" ", 0), None);
-        // Depth-0 bracket breaks immediately.
-        assert_eq!(pathplain_end("[x", 0), None);
-        assert_eq!(pathplain_end("<x", 0), None);
-        // Balanced parens allowed up to depth 2 (two open levels).
-        let s = "x.com/a(b)c";
-        let end = pathplain_end(s, 0).expect("balanced paren path");
-        assert_eq!(&s[..end], "x.com/a(b)c");
-        let s = "a(b(c)d)e";
-        let end = pathplain_end(s, 0).expect("nested one level");
-        assert_eq!(&s[..end], "a(b(c)d)e");
-        // Third open paren level breaks (depth cap).
-        assert_eq!(pathplain_end("a(b(c(d)))", 0), None);
-        // Unbalanced open paren fails.
-        assert_eq!(pathplain_end("a(b", 0), None);
-        // Unbalanced close at depth 0 breaks (path ends before `)`).
-        let s = "ab)c";
-        let end = pathplain_end(s, 0).expect("break before stray close");
-        assert_eq!(&s[..end], "ab");
-        // Trail strip can empty the path -> None.
+        assert_eq!(pathplain_end("]x", 0), None);
+        // At least two units.
+        assert_eq!(pathplain_end("a", 0), None);
+        assert_eq!(pathplain_end("ab", 0), Some(2));
+        assert_eq!(pathplain_end("(a)", 0), None, "one group is one unit");
+        assert_eq!(pathplain_end("(a)b", 0), Some(4));
+        assert_eq!(
+            pathplain_end("[a]b", 0),
+            Some(4),
+            "a group may open the path"
+        );
+        // Groups: any opener with any closer, one level of nesting.
+        assert_eq!(pathplain_end("a(b]", 0), Some(4));
+        assert_eq!(pathplain_end("a(b(c)d)e", 0), Some(9));
+        assert_eq!(pathplain_end("a((b))", 0), Some(6));
+        assert_eq!(
+            pathplain_end("ab(((c)))", 0),
+            Some(2),
+            "too deep: path ends"
+        );
+        assert_eq!(pathplain_end("ab(c", 0), Some(2), "unclosed: path ends");
+        assert_eq!(pathplain_end("ab(c d)", 0), Some(2), "space in a group");
+        assert_eq!(pathplain_end("ab)c", 0), Some(2), "stray closer");
+        // Final unit: no trailing punctuation except `-` and `/`.
+        assert_eq!(pathplain_end("ab.", 0), Some(2));
+        assert_eq!(pathplain_end("ab*_%", 0), Some(2));
+        assert_eq!(pathplain_end("ab-", 0), Some(3));
+        assert_eq!(pathplain_end("ab/", 0), Some(3));
+        assert_eq!(pathplain_end("a.b", 0), Some(3), "inner punctuation stays");
         assert_eq!(pathplain_end("...", 0), None);
-        assert_eq!(pathplain_end(".,;", 0), None);
+        // `\r` ends a unit, as the lexer ends the line there.
+        assert_eq!(pathplain_end("ab\r\n", 0), Some(2));
+        // Non-ASCII: a word character may end the path, punctuation not.
+        assert_eq!(pathplain_end("a\u{e9}", 0), Some(3));
+        assert_eq!(pathplain_end("ab\u{bb}", 0), Some(2));
+        assert_eq!(pathplain_end("a\u{a0}b", 0), Some(4), "NBSP inside stays");
     }
 
     #[test]
@@ -1091,8 +1129,8 @@ mod tests {
     /// is no separate prefilter that could disagree with the measure.
     #[test]
     fn probe_plain_rejects_pathplain_misses() {
-        // Depth-cap paren path, trail-only body after TYPE: - probe is exact.
-        for src in ["https://a(b(c(d)))", "https:...", "https:.,;"] {
+        // Trail-only body and a one-unit body after TYPE: - probe is exact.
+        for src in ["https:...", "https:.,;", "https:x", "https:(a)"] {
             assert!(
                 probe_plain(&make_parser(src)).is_none(),
                 "full probe must reject {src:?}"
@@ -1110,7 +1148,8 @@ mod tests {
         }
     }
 
-    /// Body-start matrix: empty / ws / brackets reject; one body char accepts.
+    /// Body-start matrix: empty / ws / unclosed openers reject; a path needs
+    /// two units, and a group may open it.
     #[test]
     fn at_plain_link_body_start_matrix() {
         assert!(!at_plain_link(&make_parser("https:")), "empty body");
@@ -1118,7 +1157,9 @@ mod tests {
         assert!(!at_plain_link(&make_parser("https:\t")), "tab body");
         assert!(!at_plain_link(&make_parser("https:[")), "bracket body");
         assert!(!at_plain_link(&make_parser("https:<")), "angle body");
-        assert!(at_plain_link(&make_parser("https:x")), "one body char");
+        assert!(!at_plain_link(&make_parser("https:x")), "one unit");
+        assert!(at_plain_link(&make_parser("https:xy")), "two units");
+        assert!(at_plain_link(&make_parser("https:[a]b")), "group then unit");
         // Trail-only body measures empty after PATHPLAIN trail strip.
         assert!(
             !at_plain_link(&make_parser("https:.")),
@@ -1320,5 +1361,68 @@ mod tests {
         };
         assert_eq!(shape(&after), shape(&cold), "apply and cold parse agree");
         assert_eq!(after.links().count(), 1);
+    }
+
+    /// Plain-link paths as Org reports them (probed in the parity image,
+    /// each followed by ` z`). `None` is no link.
+    #[test]
+    fn plain_link_path_end_matches_org() {
+        let cases: &[(&str, Option<&str>)] = &[
+            ("https:a", None),
+            ("https:ab", Some("https:ab")),
+            ("https://x.com/a*", Some("https://x.com/a")),
+            ("https://x.com/a-", Some("https://x.com/a-")),
+            ("https://x.com/a/", Some("https://x.com/a/")),
+            ("https://x.com/a.", Some("https://x.com/a")),
+            ("https://x.com/a.b.c.", Some("https://x.com/a.b.c")),
+            ("https://x.com/a'", Some("https://x.com/a")),
+            ("https://x.com/a$", Some("https://x.com/a")),
+            ("https://x.com/a%", Some("https://x.com/a")),
+            ("https://x.com/a`", Some("https://x.com/a")),
+            ("https://x.com/a\\", Some("https://x.com/a")),
+            ("https://x.com/a}", Some("https://x.com/a")),
+            ("https://x.com/a_", Some("https://x.com/a")),
+            ("https://x.com/a__b", Some("https://x.com/a__b")),
+            ("https://x.com/a.-", Some("https://x.com/a.-")),
+            ("https://x.com/a\u{e9}", Some("https://x.com/a\u{e9}")),
+            ("https://x.com/a\u{ab}", Some("https://x.com/a")),
+            ("https://x.com/a\u{2019}", Some("https://x.com/a")),
+            ("https://x.com/a\u{a0}", Some("https://x.com/a")),
+            (
+                "https://x.com/wiki/Foo_(bar)",
+                Some("https://x.com/wiki/Foo_(bar)"),
+            ),
+            (
+                "https://x.com/wiki/Foo_(bar)).",
+                Some("https://x.com/wiki/Foo_(bar)"),
+            ),
+            ("https://x.com/a(b", Some("https://x.com/a")),
+            ("https://x.com/a(b c)", Some("https://x.com/a")),
+            ("https://x.com/a[1].", Some("https://x.com/a[1]")),
+            ("https://x.com/a<b>", Some("https://x.com/a<b>")),
+            ("https://x.com/a(b]", Some("https://x.com/a(b]")),
+            ("https://x.com/a((b))", Some("https://x.com/a((b))")),
+            ("https://x.com/a(((b)))", Some("https://x.com/a")),
+            ("https://x.com/a(b)(c)", Some("https://x.com/a(b)(c)")),
+            ("https://x.com/a(b)c(d", Some("https://x.com/a(b)c")),
+            ("https://x.com/a()", Some("https://x.com/a()")),
+            ("https:(a)", None),
+            ("https:(a)b", Some("https:(a)b")),
+            ("https:[a]b", Some("https:[a]b")),
+            ("https:/", None),
+            ("https://", Some("https://")),
+            ("https:-", None),
+            ("https:--", Some("https:--")),
+            ("mailto:a@b.c", Some("mailto:a@b.c")),
+        ];
+        for &(path, want) in cases {
+            let src = format!("{path} z\n");
+            let doc = parse(&src);
+            let got = nodes_of_kind(doc.root(), OrgSyntaxKind::LINK)
+                .first()
+                .map(|n| n.text().to_string());
+            assert_eq!(got.as_deref(), want, "{src:?}");
+            assert_eq!(doc.write(), src, "lossless {src:?}");
+        }
     }
 }

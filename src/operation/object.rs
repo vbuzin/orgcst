@@ -9,6 +9,7 @@ use crate::ast::{
     LinkShape, PartSpan,
 };
 use crate::edit::EditSet;
+use crate::parser::grammar::forms::link::is_whole_plain_path;
 use crate::writer::{
     invalid_link_description, render_checkbox, render_link, render_link_description_insert,
 };
@@ -100,6 +101,9 @@ pub(super) fn compile_set_link_path(
         }
         LinkShape::Plain => {
             let rendered = render_link(LinkShape::Plain, path, None).map_err(map_synthesis)?;
+            if !is_whole_plain_path(path, doc.config()) {
+                return Err(OperationError::InvalidLink);
+            }
             if current == path {
                 return Ok(empty_edit_set(doc.source()));
             }
@@ -166,6 +170,9 @@ pub(super) fn compile_convert_link_shape(
         None
     };
     let replacement = render_link(to, unescaped.as_ref(), desc).map_err(map_synthesis)?;
+    if to == LinkShape::Plain && !is_whole_plain_path(unescaped.as_ref(), doc.config()) {
+        return Err(OperationError::InvalidLink);
+    }
     Ok(EditSet::single(doc.source(), link.range(), replacement)?)
 }
 
@@ -687,6 +694,39 @@ mod tests {
             &convert(NodeRef::of(&first_link(&doc)), LinkShape::Plain),
         );
         assert_eq!(text, "https://x.com\n");
+    }
+
+    /// A plain link is written only when the path reads back as the whole
+    /// link: Org leaves trailing punctuation such as `*` or `.` outside it,
+    /// and a path without a registered type is no plain link at all.
+    #[test]
+    fn plain_link_writes_refuse_paths_that_would_not_read_back() {
+        let doc = parse("https://x.com/a\n");
+        let target = NodeRef::of(&first_link(&doc));
+        for path in ["https://x.com/a*", "https://x.com/a.", "https:a", "nope/x"] {
+            assert_eq!(
+                compile(&doc, &set_path(target, path)).unwrap_err(),
+                OperationError::InvalidLink,
+                "{path:?}"
+            );
+        }
+        for path in ["https://x.com/a-", "https://x.com/b/", "https://x.com/(c)"] {
+            let (_, text) = compile_write(&doc, &set_path(target, path));
+            assert_eq!(text, format!("{path}\n"));
+            let reparsed = parse(&text);
+            let link = reparsed.links().next().expect("plain link");
+            assert_eq!(link.syntax().text().to_string(), path);
+        }
+
+        for src in ["[[https://x.com/a.]]\n", "[[nope]]\n"] {
+            let doc = parse(src);
+            let err = compile(
+                &doc,
+                &convert(NodeRef::of(&first_link(&doc)), LinkShape::Plain),
+            )
+            .unwrap_err();
+            assert_eq!(err, OperationError::InvalidLink, "{src:?}");
+        }
     }
 
     #[test]

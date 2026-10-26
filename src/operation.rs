@@ -260,8 +260,10 @@ pub enum Operation {
     ///
     /// [`OperationError::InvalidLink`] on an empty path, a newline, `>` in an
     /// angle link, a plain-link path that would re-parse as other syntax
-    /// (`*` or `#+` near the start of a line, `[[` or `<` anywhere), or
-    /// [`LinkShape::Radio`].
+    /// (`*` or `#+` near the start of a line, `[[` or `<` anywhere) or would
+    /// not read back as the whole plain link (no registered `TYPE:`, or a
+    /// tail such as trailing punctuation that Org leaves outside the link),
+    /// or [`LinkShape::Radio`].
     SetLinkPath {
         /// The link.
         target: NodeRef,
@@ -278,7 +280,9 @@ pub enum Operation {
         description: Option<String>,
     },
     /// Rebuild the whole link construct as `to`. [`LinkShape::Radio`] is
-    /// [`OperationError::InvalidLink`]. Same shape is a no-op.
+    /// [`OperationError::InvalidLink`], and so is [`LinkShape::Plain`] when
+    /// the path would not read back as the whole plain link. Same shape is a
+    /// no-op.
     ///
     /// The writer rejects an angle or plain path that would not survive a
     /// re-parse (empty path, newline, `>` in an angle link, other syntax in a

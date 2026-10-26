@@ -15,6 +15,14 @@ a minor release may break the API.
   `"https://example.com"`, `see:https://example.com` and `(call_f(1))` now
   parse as Org parses them, as does the plain link inside a rejected angle
   link (`<https://x` with `>` starting the next line).
+- A plain link's path follows Org's rule for where it ends. Trailing
+  punctuation other than `-` and `/` stays outside the link
+  (`https://x.com/a*` is `https://x.com/a`), any of `<([` with any of `])>`
+  makes a group (`a[1]`, `a(b]`), an unclosed or too-deep group ends the path
+  instead of rejecting the link, and a path needs at least two characters.
+- `SetLinkPath` on a plain link and `ConvertLinkShape` to a plain link refuse
+  a path that would not read back as the whole link, instead of writing a
+  shorter one.
 
 ## [0.1.0] - unreleased
 
