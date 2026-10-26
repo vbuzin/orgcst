@@ -7,6 +7,8 @@ a minor release may break the API.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-26
+
 ### Fixed
 
 - Plain links, inline babel calls (`call_`) and inline source blocks
@@ -24,7 +26,7 @@ a minor release may break the API.
   a path that would not read back as the whole link, instead of writing a
   shorter one.
 
-## [0.1.0] - unreleased
+## [0.1.0] - 2026-10-23
 
 First public release.
 
@@ -47,5 +49,6 @@ First public release.
 - Typed `Operation`s that compile to an `EditSet`.
 - `PortableDocument` for moving a snapshot across threads.
 
-[Unreleased]: https://github.com/vbuzin/orgcst/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/vbuzin/orgcst/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/vbuzin/orgcst/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/vbuzin/orgcst/releases/tag/v0.1.0

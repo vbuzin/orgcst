@@ -1,6 +1,6 @@
 [package]
 name = "orgcst"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.99"
 description = "Lossless concrete syntax tree parser for Org-mode, with typed views and structural edits."
