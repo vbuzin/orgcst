@@ -148,13 +148,17 @@ fn heading_change(
     old_levels.into_iter().chain(new_levels).min()
 }
 
+/// Star levels of the lines `span` touches. An empty span (a pure insertion
+/// on one side, a pure deletion on the other) still touches the line it
+/// sits on: a star typed into `** T` re-levels that line, and the old side
+/// must report its level too, or the widening stops at the outline that is
+/// itself moving.
 fn star_levels(src: &str, span: TextRange, config: &ParseConfig) -> Vec<usize> {
     let start = usize::from(span.start());
-    let end = usize::from(span.end());
-    if start >= end || start > src.len() {
+    if start > src.len() {
         return Vec::new();
     }
-    let end = end.min(src.len());
+    let end = usize::from(span.end()).max(start + 1).min(src.len());
     let bytes = src.as_bytes();
     let mut line_start = start.min(bytes.len());
     while line_start > 0 && !at_line_start(bytes, line_start) {
@@ -724,6 +728,18 @@ other
             }),
             "parent of ** X is * A"
         );
+    }
+
+    #[test]
+    fn a_star_inserted_into_a_heading_nests_it_under_the_one_above() {
+        // The old span is empty, so the old line's level must still count.
+        let src = "* A\n** S\ntext\n** T\n* P\n";
+        let prior = parse(src);
+        for (from, to) in [("** T", "*** T"), ("** S", "* S"), ("** T", "* T")] {
+            let set = edit_set(src, from, to);
+            let warm = prior.apply(&set);
+            assert_matches_cold(&warm);
+        }
     }
 
     #[test]
