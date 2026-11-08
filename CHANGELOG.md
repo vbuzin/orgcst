@@ -7,6 +7,8 @@ a minor release may break the API.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-08
+
 ### Fixed
 
 - A missing headline prefix is inserted where Org reads it. Org reads the
@@ -19,6 +21,11 @@ a minor release may break the API.
 - An insert at the title's start after a prefix with no space behind it
   (`* TODO`, an empty title) leads with a space, so `SetPriority` writes
   `* TODO [#A]` instead of `* TODO[#A]`.
+- Typing or deleting a star in a headline re-nests it at once. The
+  incremental reparse counted the star levels of the touched lines on both
+  sides, but an empty old span (a pure insertion) counted none, so the
+  widening stopped at the outline that was moving: after `** T` became
+  `*** T` the heading stayed its parent's sibling until a full parse.
 
 ## [0.1.1] - 2026-10-26
 
@@ -62,6 +69,7 @@ First public release.
 - Typed `Operation`s that compile to an `EditSet`.
 - `PortableDocument` for moving a snapshot across threads.
 
-[Unreleased]: https://github.com/vbuzin/orgcst/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/vbuzin/orgcst/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/vbuzin/orgcst/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/vbuzin/orgcst/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/vbuzin/orgcst/releases/tag/v0.1.0
