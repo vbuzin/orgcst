@@ -7,6 +7,27 @@ a minor release may break the API.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-11
+
+### Added
+
+- `Operation::SplitHeading`: the title after an offset becomes the title
+  of a new heading at the same level after the subtree; the heading keeps
+  its own text and children.
+- `Operation::InsertSubtree`: Org text holding one or more subtrees is
+  inserted at a `SubtreeDest`, every heading shifted by the same number of
+  levels so the shallowest lands at the destination's level.
+- `Operation::ReorderChildren`: an outline's direct children reordered by
+  a permutation, each with its subtree and trailing blank lines.
+- `Operation::ConvertToText`: a heading's title becomes a paragraph where
+  the headline was, its metadata is dropped and its descendants are
+  promoted one level; a title that would not read back as a paragraph is
+  refused.
+- `relevel_text`: Org text with every heading shifted so the shallowest is
+  at a given level, read under a document's configuration.
+- `OperationError::InvalidOffset`, `InvalidSubtree`, `InvalidOrder` and
+  `InvalidText` for the new operations.
+
 ## [0.1.2] - 2026-11-08
 
 ### Fixed
@@ -69,7 +90,8 @@ First public release.
 - Typed `Operation`s that compile to an `EditSet`.
 - `PortableDocument` for moving a snapshot across threads.
 
-[Unreleased]: https://github.com/vbuzin/orgcst/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/vbuzin/orgcst/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/vbuzin/orgcst/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/vbuzin/orgcst/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/vbuzin/orgcst/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/vbuzin/orgcst/releases/tag/v0.1.0
