@@ -13,6 +13,7 @@ mod headline;
 mod locate;
 mod metadata;
 mod object;
+mod restructure;
 mod structure;
 mod text;
 
@@ -20,6 +21,7 @@ mod text;
 mod envelope;
 
 pub use locate::{NodeRef, SubtreeDest, apply_locating, payload_start};
+pub use restructure::relevel_text;
 
 use crate::ast::{Delay, LinkShape, Repeater, TimestampPoint, TimestampShape};
 use crate::edit::{EditSet, EditSetError};
@@ -236,6 +238,53 @@ pub enum Operation {
         /// Number of stars to add.
         by: usize,
     },
+    /// Split a heading's title at `at`: the title before it stays, the rest
+    /// becomes the title of a new heading at the same level after the
+    /// subtree. The heading's own text and children stay with it; its TODO
+    /// keyword, priority and tags are not copied. Space around the cut is
+    /// dropped. `at` must lie in the title's content, ends included
+    /// ([`OperationError::InvalidOffset`]); a part that would not read back
+    /// as a title is [`OperationError::InvalidTitle`]. Find the new heading
+    /// with [`payload_start`] at the outline's `insert_after` point.
+    SplitHeading {
+        /// The outline, or its heading.
+        target: NodeRef,
+        /// Where the title is cut, in snapshot coordinates.
+        at: TextSize,
+    },
+    /// Insert Org text holding one or more subtrees at `at`, every heading
+    /// shifted by the same number of levels so the shallowest lands at the
+    /// destination's level (see [`relevel_text`]). Leading blank lines are
+    /// dropped; text before the first heading, or no heading at all, is
+    /// [`OperationError::InvalidSubtree`]. Find the first inserted heading
+    /// with [`payload_start`].
+    InsertSubtree {
+        /// Where the subtrees go.
+        at: SubtreeDest,
+        /// The Org text, read under the snapshot's configuration.
+        text: String,
+    },
+    /// Reorder an outline's direct children: the child at `order[i]` goes
+    /// `i`-th. Each child moves with its subtree and trailing blank lines.
+    /// `order` must be a permutation of the children's indices
+    /// ([`OperationError::InvalidOrder`]); the identity is an empty set.
+    ReorderChildren {
+        /// The outline, or its heading.
+        target: NodeRef,
+        /// The new order, as indices into the current children.
+        order: Vec<usize>,
+    },
+    /// Turn a heading into text: its title becomes a paragraph where the
+    /// headline was, its TODO keyword, priority, tags, planning line and
+    /// property drawer are dropped, its own text stays, and every
+    /// descendant is promoted one level. Blank lines keep the paragraph
+    /// apart from text before and after it. A title that would not read
+    /// back as a paragraph (a list item, a table row, a keyword) is
+    /// [`OperationError::InvalidText`]. An empty title writes no paragraph.
+    ConvertToText {
+        /// The outline, or its heading.
+        target: NodeRef,
+    },
 
     /// Cycle an item checkbox. An unchecked box becomes checked and back; a
     /// partial box becomes checked; an item without a box gains a checked
@@ -360,6 +409,14 @@ pub enum OperationError {
     InvalidLink,
     /// This part cannot exist on the construct's current shape.
     PartNotApplicable,
+    /// The offset is not inside the part the operation cuts.
+    InvalidOffset,
+    /// The text holds no heading, or text before its first one.
+    InvalidSubtree,
+    /// The order is not a permutation of the children.
+    InvalidOrder,
+    /// The text would not read back as the construct it is written as.
+    InvalidText,
     /// Coordinate validation failed ([`EditSet::new`]).
     EditSet(EditSetError),
 }
@@ -408,6 +465,17 @@ impl fmt::Display for OperationError {
             Self::InvalidLink => write!(f, "link cannot be rewritten"),
             Self::PartNotApplicable => {
                 write!(f, "this part is not applicable to the construct")
+            }
+            Self::InvalidOffset => write!(f, "offset is outside the part being cut"),
+            Self::InvalidSubtree => {
+                write!(
+                    f,
+                    "text is not one or more subtrees starting with a heading"
+                )
+            }
+            Self::InvalidOrder => write!(f, "order is not a permutation of the children"),
+            Self::InvalidText => {
+                write!(f, "text would not read back as the construct written")
             }
             Self::EditSet(e) => write!(f, "{e}"),
         }
@@ -561,6 +629,16 @@ pub fn compile(doc: &Document, op: &Operation) -> Result<EditSet, OperationError
         Operation::ReplaceText { range, replacement } => {
             text::compile_replace_text(doc, *range, replacement)
         }
+        Operation::SplitHeading { target, at } => {
+            restructure::compile_split_heading(doc, *target, *at)
+        }
+        Operation::InsertSubtree { at, text } => {
+            restructure::compile_insert_subtree(doc, *at, text)
+        }
+        Operation::ReorderChildren { target, order } => {
+            restructure::compile_reorder_children(doc, *target, order)
+        }
+        Operation::ConvertToText { target } => restructure::compile_convert_to_text(doc, *target),
     }
 }
 
@@ -807,7 +885,7 @@ pub(crate) fn assert_envelope(doc: &Document, op: &Operation, set: &EditSet) {
         Operation::SetPlanning { target, .. } => {
             assert_edits_allowed(set, &planning_envelope_ranges(doc, *target));
         }
-        Operation::InsertHeading { at, .. } => {
+        Operation::InsertHeading { at, .. } | Operation::InsertSubtree { at, .. } => {
             let dest = locate::resolve_subtree_dest(doc, *at).expect("live dest");
             assert_edits_allowed(set, &[TextRange::empty(dest.point.offset())]);
         }
@@ -849,6 +927,43 @@ pub(crate) fn assert_envelope(doc: &Document, op: &Operation, set: &EditSet) {
             } else {
                 vec![outline.heading().stars_range()]
             };
+            assert_edits_allowed(set, &allowed);
+        }
+        Operation::SplitHeading { target, .. } => {
+            let outline = locate::resolve_outline(doc, *target).expect("live outline");
+            let title = outline.heading().title().range();
+            let after = outline.insert_after().offset();
+            for e in set.edits() {
+                assert!(
+                    e.range == TextRange::empty(after)
+                        || (e.replacement.is_empty() && title.contains_range(e.range)),
+                    "edit {:?} is outside the title and the new heading's point",
+                    e.range
+                );
+            }
+        }
+        Operation::ReorderChildren { target, .. } => {
+            let outline = locate::resolve_outline(doc, *target).expect("live outline");
+            let children: Vec<_> = outline.children().collect();
+            if let (Some(first), Some(last)) = (children.first(), children.last()) {
+                assert_edits_allowed(
+                    set,
+                    &[TextRange::new(first.range().start(), last.range().end())],
+                );
+            }
+        }
+        Operation::ConvertToText { target } => {
+            let outline = locate::resolve_outline(doc, *target).expect("live outline");
+            let mut allowed: Vec<TextRange> = outline
+                .descendants()
+                .map(|o| o.heading().stars_range())
+                .collect();
+            let end = outline
+                .property_drawer()
+                .map(|p| p.range().end())
+                .or_else(|| outline.planning().map(|p| p.range().end()))
+                .unwrap_or_else(|| outline.heading().range().end());
+            allowed.push(TextRange::new(outline.heading().range().start(), end));
             assert_edits_allowed(set, &allowed);
         }
         Operation::ToggleCheckbox { target } => {

@@ -152,7 +152,11 @@ fn splice_subtree(
     Ok(EditSet::new(doc.source(), edits)?)
 }
 
-fn pad_from_dest(root: &SyntaxNode, dest: InsertPoint, payload: &str) -> (Padding, Padding) {
+pub(super) fn pad_from_dest(
+    root: &SyntaxNode,
+    dest: InsertPoint,
+    payload: &str,
+) -> (Padding, Padding) {
     let mut lead = dest.lead();
     let mut trail = dest.trail();
     let prev =
@@ -217,7 +221,7 @@ fn restar_payload(
     Ok(EditSet::new(raw, star_edits)?.apply_to_text(raw))
 }
 
-fn shifted_level(
+pub(super) fn shifted_level(
     old: usize,
     by: usize,
     promote: bool,

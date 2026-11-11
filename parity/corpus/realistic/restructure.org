@@ -1,0 +1,32 @@
+#+TITLE: What the outline operations write
+
+* P
+Intro.
+
+Buy paint
+
+Notes.
+** Brushes
+*** Fine
+** Next
+* Buy paint and :home:
+Text.
+** Child
+* brushes
+* A
+** B
+*** C
+*** X
+x text
+**** Y
+* Sorted
+** C
+** A
+*** A1
+** B
+b
+
+* One.
+
+Two.
+* Last

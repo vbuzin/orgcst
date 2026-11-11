@@ -449,7 +449,8 @@ New text comes from two places:
 
 Public helpers expose the writer's rules without its internals:
 `is_valid_tag_name`, `title_problem`, `is_valid_property_key`,
-`quote_lesser_body` and `unquote_lesser_body`, `escape_link_path`.
+`quote_lesser_body` and `unquote_lesser_body`, `escape_link_path`, and
+`relevel_text` (Org text with its headings shifted to a level).
 
 Typed changes are `Operation`s:
 

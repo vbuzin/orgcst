@@ -120,7 +120,7 @@ pub use edit::{Anchor, Bias, Edit, EditSet, EditSetError};
 pub use entities::{EntityDef, EntityForm, entity_form};
 pub use operation::{
     HeadingInput, NodeRef, Operation, OperationError, PlanningPatch, PropertyEdit, SlotPatch,
-    SubtreeDest, TimestampInput, apply_locating, compile, compile_all, payload_start,
+    SubtreeDest, TimestampInput, apply_locating, compile, compile_all, payload_start, relevel_text,
 };
 pub use parser::{
     DEFAULT_INLINE_TASK_MIN_LEVEL, DEFAULT_LINK_TYPES, DEFAULT_MAX_NESTING_DEPTH,
