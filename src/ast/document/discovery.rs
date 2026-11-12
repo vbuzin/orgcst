@@ -263,8 +263,7 @@ impl Document {
         let title = outline
             .heading()
             .part_content_range(HeadingPart::Title)
-            .map(|r| source_slice(self.source(), r).to_string())
-            .unwrap_or_default();
+            .map_or_default(|r| source_slice(self.source(), r).to_string());
         if title.is_empty() {
             return None;
         }

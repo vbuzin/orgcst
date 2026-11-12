@@ -97,10 +97,7 @@ fn setting_line(node: &SyntaxNode, key_node: &SyntaxNode) -> SettingLine {
     let value_node = child_node(node, OrgSyntaxKind::KEYWORD_VALUE);
     SettingLine {
         key: key_node.text().to_string(),
-        value: value_node
-            .as_ref()
-            .map(|n| n.text().to_string())
-            .unwrap_or_default(),
+        value: value_node.as_ref().map_or_default(|n| n.text().to_string()),
         key_range: key_node.text_range(),
         value_range: value_node.map(|n| n.text_range()),
     }

@@ -542,7 +542,7 @@ mod tests {
         );
 
         let b_sec = first_child_of_kind(b, OrgSyntaxKind::SECTION);
-        let b_sec_text = b_sec.map(|s| tree_text(&s)).unwrap_or_default();
+        let b_sec_text = b_sec.map_or_default(|s| tree_text(&s));
         assert!(b_sec_text.contains("para under B"));
         assert!(!b_sec_text.contains("para under A"));
     }

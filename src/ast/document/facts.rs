@@ -514,8 +514,7 @@ fn push_matching_drawer(
 
 fn local_properties(task: &Task) -> Vec<Property> {
     task.property_drawer()
-        .map(|d| merged_drawer_properties(&d))
-        .unwrap_or_default()
+        .map_or_default(|d| merged_drawer_properties(&d))
 }
 
 fn clocks_in_task(doc: &Document, task: &Task) -> Vec<Clock> {
