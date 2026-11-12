@@ -242,7 +242,7 @@ fn has_trailing_tag_group(title: &str) -> bool {
 ///
 /// Atoms after that colon are colons, `_@#%`, or alphanumeric TEXT runs.
 /// A valid group has at least two such atoms, ends on a colon, and is
-/// followed by ASCII space/tab or end-of-string.
+/// followed only by ASCII space/tab to end-of-string: tags end the line.
 fn tag_group_from(title: &str, colon_at: usize) -> bool {
     let rest = &title[colon_at + 1..];
     let mut atoms = 0usize;
@@ -264,7 +264,7 @@ fn tag_group_from(title: &str, colon_at: usize) -> bool {
             last_was_colon = false;
             atoms += 1;
         } else if c == ' ' || c == '\t' {
-            return atoms >= 2 && last_was_colon;
+            return atoms >= 2 && last_was_colon && chars.all(|n| n == ' ' || n == '\t');
         } else {
             return false;
         }
@@ -493,8 +493,9 @@ mod tests {
             ("[#09]", &default, None),
             ("COMMENT", &default, Some(TitleProblem::CommentMarker)),
             ("COMMENTfoo", &default, None),
+            ("foo :a: bar", &default, None),
             (
-                "foo :a: bar",
+                "foo :a: :b:",
                 &default,
                 Some(TitleProblem::TrailingTagGroup),
             ),

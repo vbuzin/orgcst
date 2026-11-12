@@ -7,6 +7,13 @@ a minor release may break the API.
 
 ## [Unreleased]
 
+### Fixed
+
+- A headline's tags must end the line, as in Org: `* a :b: c` is all title,
+  and in `* a :b: :c:` only `:c:` is tags. A tag group followed by more text
+  was read as tags. `title_problem` no longer refuses a title holding such a
+  group, since it reads back as title.
+
 ## [0.1.3] - 2026-11-11
 
 ### Added

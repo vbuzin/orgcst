@@ -508,8 +508,9 @@ fn parse_tags(parser: &mut Parser) {
 /// Does a trailing tag group begin at token `t`?
 ///
 /// A `:` preceded by narrow WHITESPACE only (not INDENT/NEWLINE), followed by
-/// one or more glued tag atoms (or `:`), ending with `:`, followed by
-/// whitespace, line end, or the region end.
+/// one or more glued tag atoms (or `:`), ending with `:`, then only optional
+/// whitespace before the line end or the region end. Tags end the line: a
+/// group with more text after it is part of the title.
 fn tags_group_at(t: TokenView) -> bool {
     if t.kind() != OrgSyntaxKind::COLON || !t.after_space() {
         return false;
@@ -521,10 +522,16 @@ fn tags_group_at(t: TokenView) -> bool {
     while let Some(next) = cur {
         let kind = next.kind();
         if kind != OrgSyntaxKind::COLON && !is_tag_atom(kind, next.text()) {
-            // Terminator: group is valid only before whitespace or line end.
-            return atoms >= 2
-                && last_was_colon
-                && matches!(kind, OrgSyntaxKind::WHITESPACE | OrgSyntaxKind::NEWLINE);
+            // Terminator: the group must end the line, with only trailing
+            // whitespace between it and the line or region end.
+            let ends_line = match kind {
+                OrgSyntaxKind::NEWLINE => true,
+                OrgSyntaxKind::WHITESPACE => next
+                    .next()
+                    .is_none_or(|after| after.kind() == OrgSyntaxKind::NEWLINE),
+                _ => false,
+            };
+            return atoms >= 2 && last_was_colon && ends_line;
         }
         last_was_colon = kind == OrgSyntaxKind::COLON;
         atoms += 1;
@@ -1137,6 +1144,48 @@ mod tests {
         assert_eq!(
             node_text(&ev.1, src, OrgSyntaxKind::TAGS).as_deref(),
             Some(":::tag1:")
+        );
+    }
+
+    #[test]
+    fn tags_must_end_the_line() {
+        // Text after the group: no tags, the whole is the title.
+        let src = "* a :b: c\n";
+        let ev = results_of(src);
+        assert_eq!(
+            node_kinds(&ev.1),
+            vec![OrgSyntaxKind::HEADING, OrgSyntaxKind::HEADING_TITLE]
+        );
+        assert_eq!(
+            node_text(&ev.1, src, OrgSyntaxKind::HEADING_TITLE).as_deref(),
+            Some("a :b: c")
+        );
+
+        // A later group that ends the line is the tags; the earlier one is title
+        // (the title node keeps the separating space, as with any tags).
+        let src = "* a :b: :c:\n";
+        let ev = results_of(src);
+        assert_eq!(
+            node_text(&ev.1, src, OrgSyntaxKind::HEADING_TITLE).as_deref(),
+            Some("a :b: ")
+        );
+        assert_eq!(
+            node_text(&ev.1, src, OrgSyntaxKind::TAGS).as_deref(),
+            Some(":c:")
+        );
+
+        // Trailing whitespace after the group still ends the line.
+        let src = "* a :b: \t\n";
+        let ev = results_of(src);
+        assert_eq!(
+            node_text(&ev.1, src, OrgSyntaxKind::TAGS).as_deref(),
+            Some(":b:")
+        );
+        let src = "* a :b: ";
+        let ev = results_of(src);
+        assert_eq!(
+            node_text(&ev.1, src, OrgSyntaxKind::TAGS).as_deref(),
+            Some(":b:")
         );
     }
 
