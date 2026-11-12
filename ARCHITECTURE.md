@@ -14,16 +14,19 @@ Four promises shape almost every decision below.
 - **Lossless.** Every byte of the input is in exactly one token, so
   `root().text() == source()` for any input, malformed or not. The cost is
   that the tree must hold whitespace, blank lines and broken syntax as real
-  tokens, and every construct needs a rule for who owns them.
+  tokens, and every construct needs a rule for who owns them. Saving after
+  an edit therefore changes only the bytes the edit touched; nothing is
+  normalised on the way.
 - **Faithful.** Recognition follows `org-element`, checked by a parity
   harness against a pinned Emacs. Where the crate differs on purpose, the
   difference is written down with a fixture. The cost is that many rules are
   Org's regexps translated by hand, quirks included.
 - **Infallible and bounded.** `parse` never returns an error and never
-  aborts the process on valid UTF-8 below `MAX_SOURCE_LEN` (4 GiB).
-  Recoverable problems become diagnostics. Nesting is capped, so hostile
-  input cannot exhaust the stack. The cost is a resource limit Org does not
-  have.
+  aborts the process on valid UTF-8 below `MAX_SOURCE_LEN` (4 GiB). Text
+  being edited is malformed most of the time, and a caller still needs a
+  tree for it. Recoverable problems become diagnostics. Nesting is capped,
+  so hostile input cannot exhaust the stack. The cost is a resource limit
+  Org does not have.
 - **Portable.** No I/O, one dependency (`rowan`), and the same output on
   `wasm32` as on the host. The cost is that anything touching files,
   threads or time belongs to the caller.
@@ -46,6 +49,15 @@ The grammar never touches rowan's `GreenNodeBuilder` and never mutates the
 token vector. It produces a flat log of events; the builder replays that log
 against the tokens. This keeps grammar code free of tree plumbing and lets
 the builder check tiling in one place.
+
+The tree is rowan's: an immutable green tree that stores lengths only, and a
+red tree built over it on demand with parent links and absolute ranges.
+Because green nodes hold no positions, an untouched subtree can be shared
+between snapshots, which is what reuse in `damage/` depends on. For the same
+reason every public range is an absolute byte offset into the source, and no
+relative offset crosses an interface for a caller to re-base. Typed meaning
+is a view over this one tree, not a second model beside it that could
+disagree.
 
 A `Document` is the unit a caller holds: the source (`Arc<str>`), the
 effective `ParseConfig` the tree was built under, the caller's config it was
@@ -88,6 +100,15 @@ touching the producer.
 
 Grammar code follows a small set of conventions. Each one exists to make a
 class of bug impossible rather than unlikely.
+
+The grammar is hand-written recursive descent over the token stream, with no
+parser combinators and no regular expressions. Org's rules are regexps with
+quirks that recognition must match exactly; translating each one by hand
+into a probe over capped views keeps positions, ownership and limits under
+the crate's control rather than a library's, and keeps the dependency set at
+`rowan`. Structural keywords such as `#+begin_` and `:END:` compare caseless
+on ASCII bytes in place, never through a lowercased copy; TODO keywords and
+`COMMENT` compare exactly, as in Org.
 
 **Elements are line-first.** Every element family exposes a pure probe and
 an emitter:
@@ -262,16 +283,28 @@ the tree does and why.
 
 ### Single structural pass
 
-`parse` is one pass over the source. No later pass rewrites the tree, so
-the tree a caller gets is a pure function of `(text, config)`. Anything
-that needs document-wide knowledge after parsing is a query over the tree,
-not tree structure. The main example: prose that matches a
-`<<<radio target>>>` is not a link node. Matching it requires every radio
-target in the file, which would need a second pass and would make one edit
-able to restructure text anywhere. Target definitions are parsed; matching
-is left to a query.
+`parse` is one pass over the source. No later pass rewrites the tree, so the
+tree a caller gets is a pure function of `(text, config)`. Anything that
+needs document-wide knowledge after parsing is a query over the tree, not
+tree structure. The main example: prose that matches a `<<<radio target>>>`
+is not a link node. Matching it requires every radio target in the file,
+which would need a second pass and would make one edit able to restructure
+text anywhere. Target definitions are parsed; matching is left to a query.
+Resolving a `[[fuzzy]]` link to a target or heading is the same kind of
+question: the bracket link is parsed as written, and what it points at is a
+query over the tree.
+
+### Ranges include delimiters
+
+A node's range is the construct's full extent, delimiters included, as Org's
+`:begin`..`:end`: a bold span covers both asterisks, a block runs from its
+begin line through its end line. What lies inside the delimiters is the
+node's children, and a view reports it as the content span. So a node's text
+is always exactly its source, and neither the writer nor an edit needs a
+per-construct rule for where the markers are.
 
 ### The outline
+
 
 `drive::document` builds an optional zeroth section, then `OUTLINE` nodes:
 `HEADING`, then optional planning, optional property drawer, a `SECTION`,
@@ -300,6 +333,15 @@ lines before it. This mirrors Org's `:post-blank`: an editor that deletes an
 element deletes the blank lines Org considers part of it. One exception,
 also Org's: a `\\` line break owns its trailing spaces and the newline.
 
+New material placed inside a unit lands before the blank lines that unit
+owns, and material placed after a unit lands after them. A first child goes
+directly under its heading, and a sibling after a subtree goes after the
+subtree's trailing blanks, because those blanks belong to the unit they
+follow. Whether new material needs a blank line before it depends on both
+neighbours (a paragraph absorbs a following text line), so
+`separation_after` answers it from the previous element and the kind being
+inserted.
+
 ### Affiliated keywords are structure
 
 Org stores `#+NAME:`, `#+CAPTION:` and the rest as properties of the
@@ -314,14 +356,19 @@ SECTION
   PARAGRAPH                  the target; its range is unchanged
 ```
 
-The run attaches unless a blank line, comment, clock line, star line, EOF
-or a container end follows it; then there is no run node and each line is
-a plain `KEYWORD` owning its blank lines. Attachment is decided once, in
+The run attaches unless a blank line, comment, clock line, star line, EOF or
+a container end follows it; then there is no run node and each line is a
+plain `KEYWORD` owning its blank lines. Attachment is decided once, in
 `decide`: `keyword::probe` reads one line, and `affiliated::try_run` peeks
 forward. Keeping attachment in the tree means a consumer asks "does this
 element have a caption?" by looking at its previous sibling
 (`ElementView::affiliated`), with no second parse, and an orphaned caption
-can never be read as anyone's caption. The module docs of
+can never be read as anyone's caption. The run degrades as a whole, never
+attaching a prefix, because that is how Org drops it. It is the target's
+previous sibling rather than its first child, so attachment never moves the
+target's own range: a blank line typed above a long source block changes one
+small node, not the block's extent and the damage around it. An orphaned
+keyword is valid Org and gets no diagnostic. The module docs of
 `forms/affiliated.rs` list the run's invariants.
 
 ### Configuration is applied at parse time, and the list is closed
@@ -330,6 +377,15 @@ Some settings change what the tree is: TODO keywords decide whether a
 heading's first word is a keyword, link types decide what a plain link is.
 These are applied while parsing, not patched on afterwards, so a tree is
 always internally consistent with the config it records.
+
+The line is this: if a setting changes which nodes exist or where they start
+and end, the grammar applies it (the setting carves); if it only changes how
+an existing node is read (whether a priority is in range, how tags group), a
+query applies it to the tree. A tree that held a keyword-shaped candidate
+for views to resolve later was rejected. Every question about a heading
+would need the config in hand, and where the title starts would still have
+to pick an answer a view could contradict. The node is the answer, so a
+snapshot answers without outside state.
 
 The places the grammar reads `ParseConfig` are a closed, enumerated set:
 
@@ -347,6 +403,12 @@ constructs in this table can be damaged. A new construct that reads
 `ParseConfig` adds a row in the same change. A missing row is a correctness
 bug, not a documentation lapse.
 
+The list is closed to callers too. There is no registry through which a
+caller teaches the grammar a new in-buffer setting: if there were, the same
+bytes would parse differently depending on what each caller had loaded. A
+caller reaches the grammar only through the knobs above, set before parsing,
+and changing one costs a cold parse.
+
 ## Configuration and in-buffer settings
 
 `ParseConfig` holds only the knobs above. It is built from `default()` and
@@ -354,6 +416,14 @@ bug, not a documentation lapse.
 are the same value. A crate-internal delta asks what the grammar would
 build differently. Both read one private diff that destructures every
 field, so a new knob is a compile error until it is classified for both.
+
+`ParseConfig::default()` is stock Org (`TODO | DONE`, inline-task level 15,
+the built-in link types, no alphabetical bullets, no user entities), so a
+stock file parses here as it does in a stock Emacs; `max_nesting_depth` is
+the one knob Org does not have. Resolving a document's settings over the
+caller's is the crate's job, never the caller's: the bar rule and
+file-replaces-caller are Org rules the grammar already applies, and a second
+copy would drift.
 
 A document can declare settings. Only those that change the tree's shape
 enter the effective config, and today that is the TODO vocabulary:
@@ -363,6 +433,17 @@ Everything else a document declares (`#+PRIORITIES:`, `#+TAGS:`,
 tree on demand by `Document` methods and never enters `ParseConfig`. So
 changing a priority range is not damage.
 
+A document's own vocabulary always wins. There is no mode that parses a file
+while ignoring its `#+TODO:`, because Org has none and a file must open here
+as it does elsewhere. `#+LINK:` does not carve: it defines abbreviations
+expanded when a link is followed, and link types come only from the caller,
+since Org offers no in-buffer way to add one. A setting that carves has a
+caller layer, so what is in effect cannot be read off the tree and is
+`Document::config()`; there is no accessor for the vocabulary a file
+declares, because a second answer could contradict the tree. A setting that
+does not carve has no caller layer, so what the document declares is the
+whole answer, and a missing declaration is `None`, not a default.
+
 Settings are read from the parsed tree, never from a separate line scanner.
 That makes liveness a matter of tree shape: a directive inside a lesser
 block is body text and never became a node, one inside a greater block did.
@@ -371,7 +452,10 @@ There is no second scanner to disagree with the parser.
 `Document::config()` is the effective config the tree was built under. The
 caller's layer is kept privately, because the in-buffer vocabulary replaces
 the caller's and so cannot be recovered from the effective config, and a
-re-resolve after an edit must layer over the same base.
+re-resolve after an edit must layer over the same base. There is one public
+config type, not an input type and a resolved type: callers read back only
+the effective config, and a second public type would be a second answer to
+the same question.
 
 ## Edits and incremental reparse
 
@@ -428,6 +512,13 @@ Two reuse paths live in `damage/`. Neither changes the result.
   green nodes. Diagnostics are dropped, shifted and spliced so the result
   matches a cold parse, order included.
 
+Reuse may over-estimate what changed but never under-estimate it; when it
+cannot tell, it widens, ending at a cold parse. Only the vocabulary gets a
+narrow config path because the two layers change differently: a file that
+declares `#+TODO:` changes the vocabulary on every open but reaches only
+star lines, while caller knobs reach many forms but change rarely and at the
+user's request.
+
 When an edit also changes the vocabulary, the producer takes two steps:
 text damage under the old config, then config damage. New text together
 with a name-set change in one step is a cold parse. Tests pin how many cold
@@ -479,10 +570,64 @@ five capability traits (`HasParts`, `ElementView`, `HasElements`,
 Four exhaustive enums (`Element`, `Object`, `Container`, `Task`) let a
 consumer match on everything a position can hold.
 
+Every piece Org gives a grammar is carved as its own node or token, and
+views find parts through carved syntax only, never by re-scanning text. Each
+span has one use: decorations read the construct span; a replacement writes
+the content span; a delete removes the removal span, which takes the
+separator that exists only because the part does (`* TODO Title` loses the
+keyword and the space after it); moving or deleting an element takes the
+full span, so its caption goes with it. A part is present, absent with an insert point, or not applicable
+to the construct's shape, so a command can tell "add a description" from
+"this link cannot have one".
+
+An insert point carries the separation still to be written on each side,
+because an offset alone cannot say that a file lacks a final newline or that
+a space is already there. A structural extent such as a subtree is the
+node's own range, never a second definition: reuse and rendering trust the
+tree's blank-line ownership, and Emacs's per-command trims are derived from
+the extent by the caller.
+
+A construct implements a capability trait only if it has the capability, so
+an empty walk always means "nothing here", never "wrong question"; a block's
+body is reached through a sum over its body mode instead of walks that would
+be empty for some kinds. `cast` may refuse a node whose kind `can_cast`
+accepts, because some kinds are an element in one place and part of their
+parent in another, and `Document` is not a view at all, since a snapshot
+owns source, config and diagnostics that a node cannot recover. The four
+enums are exhaustive because an arm is added only when the grammar grows,
+which is a version bump anyway, whereas `Operation` is `#[non_exhaustive]`
+because the catalogue grows without the grammar. `AstNode` is the crate's
+own minimal trait rather than rowan's, which carries a `Language` parameter
+this crate has no use for and sits beside a mutable-tree API it must never
+grow.
+
 Facts that depend on context, such as a heading's TODO kind or an inherited
 property, live on `Document` and say where they came from. The crate states
 facts; applying a user option such as tag inheritance is the caller's
-choice.
+choice. A value Org judges against a declaration is recognised by its shape
+and judged separately: a priority cookie outside the declared range is still
+a cookie, because an editor has to show it for the user to fix it.
+
+An accessor's home follows one rule:
+
+- what the node alone answers is a method on its view;
+- a capability many constructs share is a trait;
+- pure ascent is a free function in `ast::nav`;
+- anything that needs the snapshot or an offset into the file is a method
+  on `Document`.
+
+A contextual answer names both operands, `doc.todo_kind(&heading)` rather
+than a view reaching for the config, so a consumer never needs to know
+whether an answer comes from the tree or from the parse inputs. The test for
+a derived value is whether Emacs exposes the behaviour as a user option. If
+it does (tag or property inheritance, odd levels, which drawer receives a
+clock line), the crate returns the chain with origins and the caller folds
+it, since a resolved answer would ship one product's policy and discard the
+origins. If Org defines the grammar or structure, the crate types it, and
+only that far: `#+TAGS:` is typed, `#+TITLE:` is text with objects, and an
+unknown keyword is a key, a value and a range; `property` is the local
+lookup, Emacs's default, and the walk has the longer name
+`property_inherited`.
 
 Censuses keep the views complete: every node kind is emitted by the
 `TAXONOMY` fixtures or listed in `syntax::NEVER_EMITTED` with a reason, and
@@ -495,6 +640,15 @@ without atomics. `PortableDocument` carries a snapshot across threads as
 five `Send + Sync` parts (source, green tree, effective config, caller
 config, diagnostics) and rebuilds the red root on the other side. There is
 no `unsafe impl Send` and no lock.
+
+Both config layers travel because the next `apply` re-resolves the
+document's settings over the caller's layer; a snapshot rebuilt with only
+the effective config would go wrong one edit later. The affinity is not a
+defect to hide: a red node is a cheap, throwaway projection, and a lock or a
+thread-local registry would make every reader pay for concurrency policy
+that belongs to the caller. A snapshot never moves through text, which would
+turn a pointer move into a parse. The caller layer has no public accessor,
+because callers need to move a snapshot, not re-resolve it by hand.
 
 The same text and config give the same tree on any thread and on wasm32.
 `tests/determinism.rs` parses and applies on eight threads and compares a
