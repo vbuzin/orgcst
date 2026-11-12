@@ -11,7 +11,8 @@ below). Please say which Org version you compared against.
 
 ## Before you open a pull request
 
-Run the same checks CI runs:
+Run the same checks CI runs. `rust-toolchain.toml` pins the toolchain for
+both, so a check that passes here passes in CI:
 
 ```bash
 cargo fmt --check

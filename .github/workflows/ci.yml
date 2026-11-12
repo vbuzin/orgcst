@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
 
+# The toolchain is rust-toolchain.toml's; `rustup toolchain install` reads it.
+# The msrv and fuzz jobs name theirs with `+`, which the file cannot override.
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
@@ -19,7 +21,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --all-targets
       - run: cargo test --doc
@@ -28,9 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -W clippy::pedantic
@@ -42,15 +42,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.99
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --lib
+      - run: cargo +1.99 check --lib
 
   wasm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown, wasm32-wasip1
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --lib --target wasm32-unknown-unknown
       - uses: bytecodealliance/actions/wasmtime/setup@v1
@@ -64,8 +62,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: fuzz
-      - run: cargo install cargo-fuzz --locked
+      - run: cargo +nightly install cargo-fuzz --locked
       - run: |
           for target in parse roundtrip apply; do
-            cargo fuzz run "$target" -- -max_total_time=60
+            cargo +nightly fuzz run "$target" -- -max_total_time=60
           done
