@@ -131,8 +131,8 @@ paragraph is computed from `decide` (a heading, a claim, or a degrade that
 still interrupts), not from a second rule set that could drift from it.
 
 **Objects are cursor-first.** Inline recognition works on a token cursor. A
-restriction-gated candidate table tries rows in Org's order; the order is
-product semantics and is pinned by a test. Like elements, an object row
+restriction-gated candidate table tries rows in Org's order; the order
+decides what a span is and is pinned by a test. Like elements, an object row
 probes for a shape and then emits it. Where `org-element--object-lex` has a
 branch rather than a fallthrough (`_` tries underline before subscript; `\\`
 goes to line break and nowhere else), the row reproduces the branch.
@@ -622,7 +622,7 @@ whether an answer comes from the tree or from the parse inputs. The test for
 a derived value is whether Emacs exposes the behaviour as a user option. If
 it does (tag or property inheritance, odd levels, which drawer receives a
 clock line), the crate returns the chain with origins and the caller folds
-it, since a resolved answer would ship one product's policy and discard the
+it, since a resolved answer would ship one caller's policy and discard the
 origins. If Org defines the grammar or structure, the crate types it, and
 only that far: `#+TAGS:` is typed, `#+TITLE:` is text with objects, and an
 unknown keyword is a key, a value and a range; `property` is the local
