@@ -7,6 +7,14 @@ a minor release may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- `Document::startup()`: the `#+STARTUP:` words of every live line as a
+  `Startup`, each word Org knows typed by the option it sets
+  (`StartupGroup`), a later word of a group winning, unknown words kept in
+  order with their ranges; `Startup::visibility()` reads the folding the
+  file asks for as a `StartupVisibility`.
+
 ## [0.1.4] - 2026-11-12
 
 ### Fixed
