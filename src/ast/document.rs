@@ -3,8 +3,7 @@
 //! - `queries`: outlines, typed walks, covering and enclosing ranges;
 //! - `joins`: TODO state, priorities, tags and properties;
 //! - `discovery`: iterators per construct and lookups by ID, name or label;
-//! - `facts`: `#+MACRO:`, `#+LINK:`, header arguments and special properties;
-//! - `startup`: `#+STARTUP:` words by the option each sets.
+//! - `facts`: `#+MACRO:`, `#+LINK:`, header arguments and special properties.
 //!
 //! A *live* keyword line is one the parser made a keyword node. The same text
 //! inside a src or example block is body text and does not count.
@@ -13,11 +12,9 @@ mod discovery;
 mod facts;
 mod joins;
 mod queries;
-mod startup;
 
 pub use discovery::{Footnote, InternalAddress};
 pub use facts::{EntryFact, EntryFactValue, EntryFacts, HeaderArgsOrigin, LinkAbbrev, MacroDef};
-pub use startup::{Startup, StartupGroup, StartupVisibility, StartupWord};
 
 #[cfg(test)]
 use crate::TextSize;
