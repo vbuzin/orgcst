@@ -124,6 +124,10 @@ impl StatisticsCookie {
     /// (ASCII caseless) the cookie counts checkboxes, and otherwise it counts
     /// TODO entries. Other words, such as `recursive`, do not change the
     /// answer. `None` when the cookie has no [`Self::host_task`].
+    #[deprecated(
+        since = "0.1.5",
+        note = "what a property means is the caller's: read `COOKIE_DATA` from the host task's property drawer; removed in 0.2.0"
+    )]
     #[must_use]
     pub fn cookie_data(&self) -> Option<CookieData> {
         let task = self.host_task()?;
@@ -167,6 +171,7 @@ fn climb<T>(start: &SyntaxNode, mut pred: impl FnMut(&SyntaxNode) -> Option<T>) 
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // cookie_data stays tested until it is removed in 0.2.0
 mod tests {
     use super::*;
     use crate::ast::Outline;

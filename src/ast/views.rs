@@ -60,7 +60,7 @@ pub use inline_src::{InlineSrcBlock, InlineSrcPart};
 pub use inline_task::InlineTask;
 pub use keyword::{
     AffiliatedKeywords, BabelCall, BabelCallPart, Keyword, KeywordDual, KeywordPart, KeywordRole,
-    KeywordValue,
+    KeywordValue, ValueWord,
 };
 pub use latex::{LatexEnvironment, LatexEnvironmentPart, LatexFragment, LatexFragmentShape};
 pub use line_break::LineBreak;

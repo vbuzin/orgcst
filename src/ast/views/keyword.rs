@@ -193,6 +193,51 @@ impl KeywordValue {
     pub fn is_object_region(&self) -> bool {
         parent_keyword(self.syntax()).is_parsed()
     }
+
+    /// The value split on ASCII whitespace, as Org's `split-string` splits a
+    /// setting's value, each word with its range. The words carry no
+    /// meaning here: what a word does is the caller's.
+    #[must_use]
+    pub fn words(&self) -> Vec<ValueWord> {
+        let start = self.range().start();
+        with_node_text(self.syntax(), |s| {
+            let mut out = Vec::new();
+            let mut at = 0;
+            for piece in s.split(|c: char| c.is_ascii_whitespace()) {
+                if !piece.is_empty() {
+                    let from = start + TextSize::try_from(at).unwrap_or_default();
+                    let len = TextSize::try_from(piece.len()).unwrap_or_default();
+                    out.push(ValueWord {
+                        text: piece.to_owned(),
+                        range: TextRange::at(from, len),
+                    });
+                }
+                at += piece.len() + 1;
+            }
+            out
+        })
+    }
+}
+
+/// One whitespace-separated word of a keyword's value.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ValueWord {
+    text: String,
+    range: TextRange,
+}
+
+impl ValueWord {
+    /// The word as written.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// The word's range in the source.
+    #[must_use]
+    pub fn range(&self) -> TextRange {
+        self.range
+    }
 }
 
 impl KeywordDual {
@@ -955,5 +1000,27 @@ mod tests {
                 crate::ast::check_part_contract(&call);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod words_tests {
+    #[test]
+    fn a_value_splits_into_words_with_their_ranges() {
+        let src = "#+STARTUP:  overview\tlogdone  x\n";
+        let doc = crate::parse(src);
+        let kw = doc.keywords().next().expect("a keyword");
+        let words = kw.value().words();
+        let seen: Vec<(&str, &str)> = words.iter().map(|w| (w.text(), &src[w.range()])).collect();
+        assert_eq!(
+            seen,
+            [("overview", "overview"), ("logdone", "logdone"), ("x", "x")]
+        );
+        let empty = crate::parse("#+STARTUP:\n");
+        let none: Vec<super::ValueWord> = Vec::new();
+        assert_eq!(
+            empty.keywords().next().expect("a keyword").value().words(),
+            none
+        );
     }
 }

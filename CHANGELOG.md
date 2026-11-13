@@ -7,6 +7,18 @@ a minor release may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- `KeywordValue::words()`: a keyword's value split on ASCII whitespace, as
+  Org's `split-string` splits a setting, each `ValueWord` with its text and
+  range. The words carry no meaning; what one does is the caller's.
+
+### Deprecated
+
+- `StatisticsCookie::cookie_data()`, to be removed in 0.2.0: what a
+  property means is the caller's. Read `COOKIE_DATA` from the host task's
+  property drawer instead.
+
 ## [0.1.4] - 2026-11-12
 
 ### Fixed
