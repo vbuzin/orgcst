@@ -59,6 +59,22 @@ impl Section {
     }
 }
 
+/// How a heading asks to be shown when its file opens: its own
+/// `VISIBILITY` property, as Org's
+/// `org-cycle-set-visibility-according-to-property` reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum HeadingVisibility {
+    /// `folded`: the subtree hidden.
+    Folded,
+    /// `children`: the entry's text and its children's headings.
+    Children,
+    /// `content`: every heading in the subtree, no text.
+    Content,
+    /// `all` or `showall`: the whole subtree.
+    All,
+}
+
 impl Outline {
     /// The heading line.
     ///
@@ -83,6 +99,22 @@ impl Outline {
     #[must_use]
     pub fn property_drawer(&self) -> Option<PropertyDrawer> {
         child_view(self.syntax())
+    }
+
+    /// How this heading asks to be shown when the file opens: the last
+    /// `VISIBILITY` line of its own property drawer (key ASCII caseless,
+    /// value exact, as Org matches it). `None` without one, or for a value
+    /// Org does not act on. Not inherited.
+    #[must_use]
+    pub fn visibility(&self) -> Option<HeadingVisibility> {
+        let value = self.property_drawer()?.get("VISIBILITY")?.value()?;
+        match value.trim() {
+            "folded" => Some(HeadingVisibility::Folded),
+            "children" => Some(HeadingVisibility::Children),
+            "content" => Some(HeadingVisibility::Content),
+            "all" | "showall" => Some(HeadingVisibility::All),
+            _ => None,
+        }
     }
 
     /// The section, if this outline has body elements.
@@ -542,5 +574,34 @@ mod tests {
         );
         assert!(o.entry_range().end() <= child.range().start());
         assert!(o.subtree_range().end() >= child.range().end());
+    }
+}
+
+#[cfg(test)]
+mod visibility_tests {
+    use super::HeadingVisibility;
+
+    fn first(src: &str) -> Option<HeadingVisibility> {
+        crate::parse(src).outlines().next()?.visibility()
+    }
+
+    #[test]
+    fn the_visibility_property_reads_as_org_reads_it() {
+        let drawer = |v: &str| format!("* H\n:PROPERTIES:\n:VISIBILITY: {v}\n:END:\nx\n");
+        assert_eq!(first(&drawer("folded")), Some(HeadingVisibility::Folded));
+        assert_eq!(
+            first(&drawer("children")),
+            Some(HeadingVisibility::Children)
+        );
+        assert_eq!(first(&drawer("content")), Some(HeadingVisibility::Content));
+        assert_eq!(first(&drawer("all")), Some(HeadingVisibility::All));
+        assert_eq!(first(&drawer("showall")), Some(HeadingVisibility::All));
+        assert_eq!(first(&drawer("Folded")), None);
+        assert_eq!(first(&drawer("everything")), None);
+        assert_eq!(
+            first("* H\n:PROPERTIES:\n:visibility: folded\n:VISIBILITY: all\n:END:\n"),
+            Some(HeadingVisibility::All)
+        );
+        assert_eq!(first("* H\n"), None);
     }
 }
