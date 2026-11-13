@@ -31,6 +31,47 @@ Four promises shape almost every decision below.
   `wasm32` as on the host. The cost is that anything touching files,
   threads or time belongs to the caller.
 
+## What the crate covers
+
+orgcst holds Org's syntax and nothing else, so that what any program
+needs to know about how Org is written lives in one place. The syntax is
+the one Worg's [Org syntax](https://orgmode.org/worg/org-syntax.html)
+describes, in four parts:
+
+- **The constructs**, carved losslessly, each with its typed parts.
+- **The parts of the syntax Org makes configurable**: TODO keywords, link
+  types, entities and the inline-task level. They are the closed table in
+  [Configuration is applied at parse time](#configuration-is-applied-at-parse-time-and-the-list-is-closed).
+- **The notation of declarations.** Some in-file values are not free
+  text: they declare a vocabulary or a definition in a notation Org
+  defines. Examples are `#+TODO` with its fast keys and `@` and `!`
+  markers, `#+PRIORITIES`, `#+TAGS` with its groups, `#+FILETAGS`,
+  `#+PROPERTY` with `+`, `#+MACRO`, `#+LINK`, and header arguments. The
+  crate types that notation. Facts read off the tree, such as a tag an
+  ancestor carries, are reported with their origins and no option
+  applied.
+- **Writing**: rendering and operations that keep the text parsing back
+  as itself.
+
+The crate never holds what an option does: how something is shown,
+folded, sorted, counted, logged or exported. `#+STARTUP: overview
+logdone` reaches a caller as a keyword whose value is two words with
+their ranges. Which option each word sets is the caller's to know.
+
+An addition must pass two questions, asked in order:
+
+1. Is it syntax: a construct, a part of one, or the notation of a
+   declaration's value (separators, brackets, markers or placeholders Org
+   defines)?
+2. Can it be answered without knowing what Org does with it?
+
+Only an addition that answers yes to both belongs here. `#+TAGS: { @work
+@home } laptop` passes, because its braces must be parsed to know which
+tags exist at all. `#+STARTUP` words grouped by the option each sets do
+not, because the words carry no notation beyond whitespace and the
+grouping is Org's table of options. The same goes for a `VISIBILITY` or
+`COOKIE_DATA` value read as the behaviour it selects.
+
 ## Bird's-eye view
 
 ```text
