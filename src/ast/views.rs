@@ -73,7 +73,7 @@ pub use list::{
 };
 pub use macros::Macro;
 pub use markup::{Emphasis, Markup, MarkupBody, MarkupKind, MarkupPart};
-pub use outline::{HeadingVisibility, Outline, Section};
+pub use outline::{Outline, Section};
 pub use paragraph::Paragraph;
 pub use planning::{Planning, PlanningPart};
 pub use property::{NodeProperty, PropertyDrawer, PropertyPart};

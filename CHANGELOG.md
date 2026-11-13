@@ -9,9 +9,6 @@ a minor release may break the API.
 
 ### Added
 
-- `Outline::visibility()`: a heading's own `VISIBILITY` property as a
-  `HeadingVisibility` (`folded`, `children`, `content`, `all` or `showall`),
-  read as `org-cycle-set-visibility-according-to-property` reads it.
 - `Document::startup()`: the `#+STARTUP:` words of every live line as a
   `Startup`, each word Org knows typed by the option it sets
   (`StartupGroup`), a later word of a group winning, unknown words kept in
