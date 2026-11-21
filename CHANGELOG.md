@@ -9,6 +9,20 @@ a minor release may break the API.
 
 ### Added
 
+- `Operation::InsertObject`, `Operation::WrapInObject` and
+  `Operation::UnwrapObject`, with `ObjectInput`: a link, a radio target or a
+  target written from Org's names at an offset or around a range, and
+  removed again keeping its words. Each insert is checked against Org's
+  object restrictions and by a trial parse; refusals are the new
+  `OperationError::NotAllowedHere { kind, scope }` and
+  `OperationError::CrossesObject`.
+- `Operation::SetProperty` on a target of kind `DOCUMENT` edits the file's
+  own property drawer, writing a new one at the start of the file.
+  `Document::file_property_drawer()` and
+  `Document::file_property_drawer_insert_point()` read it.
+- `Document::radio_links()`: the text that matches a radio target of the
+  file, as Org's syntax reads radio links, with `RadioLink`.
+  `RadioTarget::key_range()` and `Target::name_range()`.
 - `KeywordValue::words()`: a keyword's value split on ASCII whitespace, as
   Org's `split-string` splits a setting, each `ValueWord` with its text and
   range. The words carry no meaning; what one does is the caller's.

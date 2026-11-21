@@ -108,10 +108,10 @@ pub use ast::{
     LineBreak, Link, LinkAbbrev, LinkDescription, LinkPart, LinkShape, LinkTarget, ListKind, Macro,
     MacroDef, Markup, MarkupBody, MarkupKind, MarkupPart, NodeProperty, Object, Outline, Padding,
     Paragraph, PartSpan, PlainList, Planning, PlanningPart, PortableDocument, PresentPart,
-    Priority, Property, PropertyDrawer, PropertyOrigin, PropertyPart, RadioTarget, Repeater,
-    RepeaterKind, RepeaterUnit, ScriptPart, Section, SplitPoint, StatisticsCookie, Subscript,
-    Superscript, Table, TableCell, TableKind, TableRow, Tag, TagGroup, TagGroupKind, TagOrigin,
-    Tags, Target, Task, Timestamp, TimestampDelimiters, TimestampField, TimestampPart,
+    Priority, Property, PropertyDrawer, PropertyOrigin, PropertyPart, RadioLink, RadioTarget,
+    Repeater, RepeaterKind, RepeaterUnit, ScriptPart, Section, SplitPoint, StatisticsCookie,
+    Subscript, Superscript, Table, TableCell, TableKind, TableRow, Tag, TagGroup, TagGroupKind,
+    TagOrigin, Tags, Target, Task, Timestamp, TimestampDelimiters, TimestampField, TimestampPart,
     TimestampPoint, TimestampShape, TodoKeyword, ValueWord, VerseBody, classify_link,
     escape_link_path, normalize_angle_link_ws, normalize_bracket_link_ws, separation_after,
     unescape_link_path,
@@ -120,8 +120,9 @@ pub use document::Document;
 pub use edit::{Anchor, Bias, Edit, EditSet, EditSetError};
 pub use entities::{EntityDef, EntityForm, entity_form};
 pub use operation::{
-    HeadingInput, NodeRef, Operation, OperationError, PlanningPatch, PropertyEdit, SlotPatch,
-    SubtreeDest, TimestampInput, apply_locating, compile, compile_all, payload_start, relevel_text,
+    HeadingInput, NodeRef, ObjectInput, Operation, OperationError, PlanningPatch, PropertyEdit,
+    SlotPatch, SubtreeDest, TimestampInput, apply_locating, compile, compile_all, payload_start,
+    relevel_text,
 };
 pub use parser::{
     DEFAULT_INLINE_TASK_MIN_LEVEL, DEFAULT_LINK_TYPES, DEFAULT_MAX_NESTING_DEPTH,

@@ -10,7 +10,8 @@ use crate::ast::context::is_context_skip;
 use crate::ast::nav;
 use crate::ast::support::{child_views, dest, token_at_caret, token_owning_byte};
 use crate::ast::{
-    AstNode, Covering, Element, ElementView, InsertPoint, Item, Object, Outline, Section,
+    AstNode, Covering, Element, ElementView, InsertPoint, Item, Object, Outline, PropertyDrawer,
+    Section,
 };
 use crate::syntax::{OrgSyntaxKind, SyntaxNode};
 use crate::{Document, TextRange, TextSize};
@@ -24,6 +25,20 @@ impl Document {
     #[must_use]
     pub fn zeroth_section(&self) -> Option<Section> {
         self.root().children().find_map(Section::cast)
+    }
+
+    /// The file's own property drawer: the first element of the zeroth
+    /// section, which only comments may precede. This is where a file-level
+    /// `ID` lives.
+    #[must_use]
+    pub fn file_property_drawer(&self) -> Option<PropertyDrawer> {
+        super::lead_in_file_drawer(self)
+    }
+
+    /// Where a new file property drawer is written: the start of the file.
+    #[must_use]
+    pub fn file_property_drawer_insert_point(&self) -> InsertPoint {
+        dest(self.root(), TextSize::from(0))
     }
 
     /// Every outline, pre-order.

@@ -7,8 +7,30 @@ use crate::ast::{
     FootnoteReference, HasParts, Heading, HeadingPart, Keyword, Link, Object, Outline, PlainList,
     RadioTarget, Table, Target, Task, Timestamp,
 };
-use crate::syntax::OrgSyntaxKind;
+use crate::syntax::{OrgSyntaxKind, SyntaxNode, restrictions};
 use crate::{Document, TextRange, TextSize};
+
+/// Text that matches a radio target of the same file, which Org's syntax
+/// reads as a radio link: the answer of [`Document::radio_links`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RadioLink {
+    range: TextRange,
+    target: RadioTarget,
+}
+
+impl RadioLink {
+    /// The matched text's range.
+    #[must_use]
+    pub fn range(&self) -> TextRange {
+        self.range
+    }
+
+    /// The radio target it matches.
+    #[must_use]
+    pub fn target(&self) -> &RadioTarget {
+        &self.target
+    }
+}
 
 /// How an internal link could point at a position: the answer of
 /// [`Document::address_at`].
@@ -154,6 +176,46 @@ impl Document {
         self.map()
     }
 
+    /// Every radio link: each run of text that matches a radio target's key,
+    /// in source order.
+    ///
+    /// As Org matches them: case is ignored, a run of whitespace in the key
+    /// matches any run of whitespace (line breaks included), a key that
+    /// starts or ends with a letter or digit does not match inside a word,
+    /// the longest key wins where two could match, and matches never
+    /// overlap. Only plain text where the scope admits a link is searched,
+    /// so a target's own text, a link's description, verbatim text and
+    /// keyword values are not. The radio links are a query: the tree never
+    /// holds them as `LINK` nodes.
+    #[must_use]
+    pub fn radio_links(&self) -> Vec<RadioLink> {
+        let mut keys: Vec<(Vec<char>, RadioTarget)> = self
+            .radio_targets()
+            .map(|t| (t.key().chars().collect::<Vec<_>>(), t))
+            .filter(|(k, _)| !k.is_empty())
+            .collect();
+        if keys.is_empty() {
+            return Vec::new();
+        }
+        keys.sort_by_key(|k| std::cmp::Reverse(k.0.len()));
+        let mut out = Vec::new();
+        for node in self.root().descendants() {
+            let kind = node.kind();
+            if matches!(
+                kind,
+                OrgSyntaxKind::KEYWORD_VALUE | OrgSyntaxKind::KEYWORD_DUAL
+            ) || !restrictions(kind).contains(OrgSyntaxKind::LINK)
+            {
+                continue;
+            }
+            for run in text_runs(&node) {
+                scan_radio(self.source(), run, &keys, &mut out);
+            }
+        }
+        out.sort_by_key(|l| l.range.start());
+        out
+    }
+
     /// Every footnote definition.
     pub fn footnote_definitions(&self) -> impl Iterator<Item = FootnoteDefinition> + '_ {
         self.map()
@@ -289,6 +351,99 @@ fn property_value_eq(doc: &Document, outline: &Outline, key: &str, id: &str) -> 
         .is_some_and(|p| p.value().eq_ignore_ascii_case(id))
 }
 
+/// Runs of a node's own tokens between its child nodes.
+fn text_runs(node: &SyntaxNode) -> Vec<TextRange> {
+    let mut runs = Vec::new();
+    let mut run: Option<TextRange> = None;
+    for child in node.children_with_tokens() {
+        match child {
+            rowan::NodeOrToken::Token(t) => {
+                let r = t.text_range();
+                run = Some(run.map_or(r, |acc| acc.cover(r)));
+            }
+            rowan::NodeOrToken::Node(_) => {
+                if let Some(r) = run.take() {
+                    runs.push(r);
+                }
+            }
+        }
+    }
+    if let Some(r) = run {
+        runs.push(r);
+    }
+    runs
+}
+
+fn scan_radio(
+    src: &str,
+    run: TextRange,
+    keys: &[(Vec<char>, RadioTarget)],
+    out: &mut Vec<RadioLink>,
+) {
+    let start = usize::from(run.start());
+    let end = usize::from(run.end());
+    let mut i = start;
+    while i < end {
+        let before = src[..i].chars().next_back();
+        let mut matched = None;
+        for (key, target) in keys {
+            if key[0].is_alphanumeric() && before.is_some_and(char::is_alphanumeric) {
+                continue;
+            }
+            let Some(stop) = match_key(src, i, end, key) else {
+                continue;
+            };
+            let after = src[stop..].chars().next();
+            if key[key.len() - 1].is_alphanumeric() && after.is_some_and(char::is_alphanumeric) {
+                continue;
+            }
+            matched = Some((stop, target));
+            break;
+        }
+        if let Some((stop, target)) = matched {
+            out.push(RadioLink {
+                range: TextRange::new(
+                    TextSize::try_from(i).expect("source fits TextSize"),
+                    TextSize::try_from(stop).expect("source fits TextSize"),
+                ),
+                target: target.clone(),
+            });
+            i = stop;
+        } else {
+            i += src[i..].chars().next().map_or(1, char::len_utf8);
+        }
+    }
+}
+
+/// Where a match of `key` starting at `at` ends, within `end`.
+fn match_key(src: &str, at: usize, end: usize, key: &[char]) -> Option<usize> {
+    let text = &src[at..end];
+    let mut chars = text.char_indices().peekable();
+    let mut k = 0;
+    while k < key.len() {
+        if key[k].is_whitespace() {
+            while k < key.len() && key[k].is_whitespace() {
+                k += 1;
+            }
+            let mut any = false;
+            while chars.peek().is_some_and(|&(_, c)| c.is_whitespace()) {
+                chars.next();
+                any = true;
+            }
+            if !any {
+                return None;
+            }
+            continue;
+        }
+        let (_, c) = chars.next()?;
+        if !c.to_lowercase().eq(key[k].to_lowercase()) {
+            return None;
+        }
+        k += 1;
+    }
+    Some(at + chars.peek().map_or(text.len(), |&(j, _)| j))
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{at, span};
@@ -299,6 +454,66 @@ mod tests {
     use crate::syntax::OrgSyntaxKind;
     use crate::tests::nodes_of_kind;
     use crate::*;
+
+    fn radio_texts(src: &str) -> Vec<&str> {
+        let doc = parse(src);
+        let links = doc.radio_links();
+        links
+            .iter()
+            .map(|l| &src[usize::from(l.range().start())..usize::from(l.range().end())])
+            .collect()
+    }
+
+    #[test]
+    fn radio_links_match_as_org_does() {
+        let src = "<<<island>>> here.\n\nThe Island, an island and islands; mainland.\n";
+        assert_eq!(radio_texts(src), vec!["Island", "island"]);
+    }
+
+    #[test]
+    fn radio_links_whitespace_and_longest() {
+        let src = "<<<oak floor>>> <<<oak>>>\n\nAn oak\nfloor, an oak  floor, oak.\n";
+        assert_eq!(radio_texts(src), vec!["oak\nfloor", "oak  floor", "oak"]);
+    }
+
+    #[test]
+    fn radio_links_skip_descriptions_verbatim_and_keywords() {
+        let src = "#+TITLE: island\n<<<island>>>\n\n[[x][island]] =island= *island*\n";
+        assert_eq!(radio_texts(src), vec!["island"]);
+        let doc = parse(src);
+        let links = doc.radio_links();
+        assert_eq!(links[0].target().key(), "island");
+        // The match is the one inside the bold.
+        let bold = doc
+            .root()
+            .descendants()
+            .find(|n| n.kind() == OrgSyntaxKind::BOLD)
+            .unwrap();
+        assert!(bold.text_range().contains_range(links[0].range()));
+    }
+
+    #[test]
+    fn radio_links_in_titles_and_cells() {
+        let src = "* About the island\n<<<island>>>\n| island |\n";
+        assert_eq!(radio_texts(src), vec!["island", "island"]);
+    }
+
+    #[test]
+    fn radio_links_none_without_targets() {
+        assert_eq!(parse("island\n").radio_links().len(), 0);
+    }
+
+    #[test]
+    fn file_property_drawer_and_its_insert_point() {
+        let doc = parse("# c\n:PROPERTIES:\n:ID: x\n:END:\n#+TITLE: T\n");
+        assert!(doc.file_property_drawer().is_some());
+        let doc = parse("#+TITLE: T\n:PROPERTIES:\n:ID: x\n:END:\n");
+        assert!(doc.file_property_drawer().is_none());
+        assert_eq!(
+            doc.file_property_drawer_insert_point().offset(),
+            TextSize::from(0)
+        );
+    }
 
     #[test]
     fn headings_vs_tasks_exactness() {

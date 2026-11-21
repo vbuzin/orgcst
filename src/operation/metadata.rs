@@ -3,14 +3,16 @@
 use super::empty_edit_set;
 use super::locate::resolve_task;
 use super::{PlanningPatch, PropertyEdit, SlotPatch, TimestampInput, map_synthesis};
-use crate::ast::{AstNode, HasParts, Planning, PlanningPart, Task, Timestamp};
+use crate::ast::{
+    AstNode, HasParts, InsertPoint, Planning, PlanningPart, PropertyDrawer, Timestamp,
+};
 use crate::edit::EditSet;
 use crate::writer::{
     NodePropertySpec, PlanningKeywordSpec, TimestampSpec, is_valid_property_key,
     render_node_property, render_planning_line, render_planning_slot, render_property_drawer,
     render_timestamp, wrap_insert,
 };
-use crate::{Document, NodeRef, OperationError, TextRange};
+use crate::{Document, NodeRef, OperationError, OrgSyntaxKind, TextRange};
 
 pub(super) fn compile_set_property(
     doc: &Document,
@@ -21,19 +23,29 @@ pub(super) fn compile_set_property(
     if !is_valid_property_key(key) {
         return Err(OperationError::InvalidPropertyKey(key.to_string()));
     }
-    let task = resolve_task(doc, target)?;
+    let (drawer, insert) = if target.kind == OrgSyntaxKind::DOCUMENT {
+        (
+            doc.file_property_drawer(),
+            doc.file_property_drawer_insert_point(),
+        )
+    } else {
+        let task = resolve_task(doc, target)?;
+        (task.property_drawer(), task.property_drawer_insert_point())
+    };
     match edit {
-        PropertyEdit::Delete => compile_property_delete(doc, &task, key),
-        PropertyEdit::Set { value } => compile_property_set(doc, &task, key, value.as_deref()),
+        PropertyEdit::Delete => compile_property_delete(doc, drawer.as_ref(), key),
+        PropertyEdit::Set { value } => {
+            compile_property_set(doc, drawer.as_ref(), insert, key, value.as_deref())
+        }
     }
 }
 
 fn compile_property_delete(
     doc: &Document,
-    task: &Task,
+    drawer: Option<&PropertyDrawer>,
     key: &str,
 ) -> Result<EditSet, OperationError> {
-    let Some(drawer) = task.property_drawer() else {
+    let Some(drawer) = drawer else {
         return Ok(empty_edit_set(doc.source()));
     };
     let Some(np) = drawer.get(key) else {
@@ -50,14 +62,15 @@ fn compile_property_delete(
 
 fn compile_property_set(
     doc: &Document,
-    task: &Task,
+    drawer: Option<&PropertyDrawer>,
+    insert: InsertPoint,
     key: &str,
     value: Option<&str>,
 ) -> Result<EditSet, OperationError> {
     if matches!(value, Some(v) if v.is_empty() || v.contains(['\n', '\r'])) {
         return Err(OperationError::InvalidPropertyValue(key.to_string()));
     }
-    if let Some(drawer) = task.property_drawer() {
+    if let Some(drawer) = drawer {
         if let Some(np) = drawer.get(key) {
             if !np.is_append() && np.value().as_deref() == value {
                 return Ok(empty_edit_set(doc.source()));
@@ -90,11 +103,10 @@ fn compile_property_set(
         append: false,
     }])
     .map_err(map_synthesis)?;
-    let dest = task.property_drawer_insert_point();
     Ok(EditSet::single(
         doc.source(),
-        TextRange::empty(dest.offset()),
-        wrap_insert(dest, &drawer),
+        TextRange::empty(insert.offset()),
+        wrap_insert(insert, &drawer),
     )?)
 }
 
@@ -342,6 +354,65 @@ mod tests {
 
     fn set_plan(target: NodeRef, patch: PlanningPatch) -> Operation {
         Operation::SetPlanning { target, patch }
+    }
+
+    #[test]
+    fn set_property_on_the_file_writes_its_own_drawer() {
+        let doc = parse("#+TITLE: T\n\nText.\n* H\n");
+        let target = NodeRef::at(crate::TextSize::from(0), OrgSyntaxKind::DOCUMENT);
+        let (_, text) = compile_write(
+            &doc,
+            &set_prop(
+                target,
+                "ID",
+                PropertyEdit::Set {
+                    value: Some("abc".into()),
+                },
+            ),
+        );
+        assert_eq!(
+            text,
+            ":PROPERTIES:\n:ID: abc\n:END:\n#+TITLE: T\n\nText.\n* H\n"
+        );
+        let doc = parse(&text);
+        assert_eq!(
+            doc.file_property_drawer()
+                .unwrap()
+                .get("ID")
+                .unwrap()
+                .value()
+                .as_deref(),
+            Some("abc")
+        );
+
+        let doc = parse(":PROPERTIES:\n:AREA: home\n:END:\n#+TITLE: T\n");
+        let (_, text) = compile_write(
+            &doc,
+            &set_prop(
+                target,
+                "ID",
+                PropertyEdit::Set {
+                    value: Some("abc".into()),
+                },
+            ),
+        );
+        assert_eq!(
+            text,
+            ":PROPERTIES:\n:AREA: home\n:ID: abc\n:END:\n#+TITLE: T\n"
+        );
+
+        let doc = parse("");
+        let (_, text) = compile_write(
+            &doc,
+            &set_prop(
+                target,
+                "ID",
+                PropertyEdit::Set {
+                    value: Some("abc".into()),
+                },
+            ),
+        );
+        assert_eq!(text, ":PROPERTIES:\n:ID: abc\n:END:\n");
     }
 
     #[test]

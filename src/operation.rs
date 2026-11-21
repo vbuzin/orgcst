@@ -10,6 +10,7 @@
 
 mod field;
 mod headline;
+mod insert;
 mod locate;
 mod metadata;
 mod object;
@@ -20,6 +21,7 @@ mod text;
 #[cfg(test)]
 mod envelope;
 
+pub use insert::ObjectInput;
 pub use locate::{NodeRef, SubtreeDest, apply_locating, payload_start};
 pub use restructure::relevel_text;
 
@@ -169,8 +171,14 @@ pub enum Operation {
 
     /// Insert, update, or delete one property line (last line removes the
     /// drawer).
+    ///
+    /// A target of kind [`OrgSyntaxKind::DOCUMENT`] (`NodeRef::at(0,
+    /// DOCUMENT)`) edits the file's own property drawer, the one before the
+    /// first heading that only comments may precede; a new one is written at
+    /// the very start of the file.
     SetProperty {
-        /// The heading, inline task or outline whose drawer is edited.
+        /// The heading, inline task or outline whose drawer is edited, or
+        /// the document for the file's drawer.
         target: NodeRef,
         /// Property key, without the colons.
         key: String,
@@ -348,6 +356,46 @@ pub enum Operation {
         to: LinkShape,
     },
 
+    /// Insert an object at `at`, written from Org's names.
+    ///
+    /// The object starts at `at` mapped with [`crate::Bias::Left`] through the
+    /// set. Refused with [`OperationError::NotAllowedHere`] when the scope at
+    /// `at` does not admit the object, or when the text would not read back
+    /// with the object exactly there and every other node as it was. On a
+    /// blank line, or anywhere else among elements, the object starts a
+    /// paragraph of its own; one that would join two paragraphs is refused.
+    InsertObject {
+        /// Where the object is written.
+        at: TextSize,
+        /// What is written.
+        object: ObjectInput,
+    },
+    /// Make the text in `range` the contents of a new object: a link's
+    /// description, a radio target's or a target's text. The text itself is
+    /// not touched.
+    ///
+    /// [`OperationError::CrossesObject`] when the range cuts through another
+    /// object; [`OperationError::NotAllowedHere`] when the scope does not
+    /// admit the object or the range holds an object the new one's contents
+    /// may not (a link inside a link's description); `InvalidLink` or
+    /// `InvalidText` when the text cannot be the object's contents (a line
+    /// break, `]]` in a description).
+    WrapInObject {
+        /// The text to wrap.
+        range: TextRange,
+        /// The object; its own text argument is empty or `None`.
+        object: ObjectInput,
+    },
+    /// Remove a link, a radio target or a target and keep its words: a
+    /// link's description, else its path; a target's text.
+    ///
+    /// [`OperationError::InvalidLink`] for a plain link, or a link whose
+    /// path would read back as a link anyway (a URL).
+    UnwrapObject {
+        /// The object.
+        target: NodeRef,
+    },
+
     /// Replace `range` with `replacement`, for typing, pasting or any change
     /// the caller computes itself. Identical bytes compile to an empty set.
     ReplaceText {
@@ -417,6 +465,16 @@ pub enum OperationError {
     InvalidOrder,
     /// The text would not read back as the construct it is written as.
     InvalidText,
+    /// An object of `kind` may not be written in `scope` (Org's object
+    /// restrictions), or would not read back there.
+    NotAllowedHere {
+        /// The object.
+        kind: OrgSyntaxKind,
+        /// The innermost node at the site.
+        scope: OrgSyntaxKind,
+    },
+    /// The range cuts through an object instead of holding it whole.
+    CrossesObject,
     /// Coordinate validation failed ([`EditSet::new`]).
     EditSet(EditSetError),
 }
@@ -477,6 +535,10 @@ impl fmt::Display for OperationError {
             Self::InvalidText => {
                 write!(f, "text would not read back as the construct written")
             }
+            Self::NotAllowedHere { kind, scope } => {
+                write!(f, "{kind:?} is not allowed in {scope:?}")
+            }
+            Self::CrossesObject => write!(f, "range cuts through an object"),
             Self::EditSet(e) => write!(f, "{e}"),
         }
     }
@@ -626,6 +688,11 @@ pub fn compile(doc: &Document, op: &Operation) -> Result<EditSet, OperationError
         Operation::ConvertLinkShape { target, to } => {
             object::compile_convert_link_shape(doc, *target, *to)
         }
+        Operation::InsertObject { at, object } => insert::compile_insert_object(doc, *at, object),
+        Operation::WrapInObject { range, object } => {
+            insert::compile_wrap_in_object(doc, *range, object)
+        }
+        Operation::UnwrapObject { target } => insert::compile_unwrap_object(doc, *target),
         Operation::ReplaceText { range, replacement } => {
             text::compile_replace_text(doc, *range, replacement)
         }
@@ -793,11 +860,17 @@ fn assert_construct_envelope(set: &EditSet, outer: TextRange, dests: &[TextSize]
 #[cfg(test)]
 fn property_envelope_ranges(doc: &Document, target: NodeRef) -> Vec<TextRange> {
     use crate::ast::AstNode;
-    let task = locate::resolve_task(doc, target).expect("live metadata target");
-    let mut allowed = vec![TextRange::empty(
-        task.property_drawer_insert_point().offset(),
-    )];
-    if let Some(d) = task.property_drawer() {
+    let (drawer, insert) = if target.kind == OrgSyntaxKind::DOCUMENT {
+        (
+            doc.file_property_drawer(),
+            doc.file_property_drawer_insert_point(),
+        )
+    } else {
+        let task = locate::resolve_task(doc, target).expect("live metadata target");
+        (task.property_drawer(), task.property_drawer_insert_point())
+    };
+    let mut allowed = vec![TextRange::empty(insert.offset())];
+    if let Some(d) = drawer {
         allowed.push(d.range());
         allowed.push(TextRange::empty(d.new_property_insert_point().offset()));
         for np in d.properties() {
@@ -996,6 +1069,22 @@ pub(crate) fn assert_envelope(doc: &Document, op: &Operation, set: &EditSet) {
             let link = Link::cast(target.resolve(doc).expect("live link")).expect("LINK");
             assert_construct_envelope(set, link.range(), &[]);
         }
+        Operation::InsertObject { at, .. } => {
+            assert_edits_allowed(set, &[TextRange::empty(*at)]);
+        }
+        Operation::WrapInObject { range, .. } => {
+            assert_edits_allowed(
+                set,
+                &[
+                    TextRange::empty(range.start()),
+                    TextRange::empty(range.end()),
+                ],
+            );
+        }
+        Operation::UnwrapObject { target } => {
+            let node = target.resolve(doc).expect("live object");
+            assert_edits_within(set, node.text_range());
+        }
         Operation::ReplaceText { range, .. } => {
             assert_edits_within(set, *range);
             for e in set.edits() {
@@ -1040,6 +1129,7 @@ mod tests {
         assert_send_sync::<PlanningPatch>();
         assert_send_sync::<TimestampInput>();
         assert_send_sync::<HeadingInput>();
+        assert_send_sync::<ObjectInput>();
         assert_send_sync::<SubtreeDest>();
         assert_copy::<NodeRef>();
         assert_copy::<SubtreeDest>();
@@ -1178,6 +1268,11 @@ mod tests {
             OperationError::InvalidKeyword,
             OperationError::InvalidLink,
             OperationError::PartNotApplicable,
+            OperationError::NotAllowedHere {
+                kind: OrgSyntaxKind::LINK,
+                scope: OrgSyntaxKind::LINK_DESCRIPTION,
+            },
+            OperationError::CrossesObject,
         ];
         for e in arms {
             assert!(!e.to_string().is_empty(), "{e:?}");

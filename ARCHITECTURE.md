@@ -330,7 +330,7 @@ needs document-wide knowledge after parsing is a query over the tree, not
 tree structure. The main example: prose that matches a `<<<radio target>>>`
 is not a link node. Matching it requires every radio target in the file,
 which would need a second pass and would make one edit able to restructure
-text anywhere. Target definitions are parsed; matching is left to a query.
+text anywhere. Target definitions are parsed; matching is the query `Document::radio_links`.
 Resolving a `[[fuzzy]]` link to a target or heading is the same kind of
 question: the bracket link is parsed as written, and what it points at is a
 query over the tree.

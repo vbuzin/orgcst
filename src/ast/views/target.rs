@@ -24,6 +24,12 @@ impl Target {
     pub fn name(&self) -> String {
         text_in(self.syntax(), interior(self.syntax(), 2))
     }
+
+    /// The range of the name, between `<<` and `>>`.
+    #[must_use]
+    pub fn name_range(&self) -> crate::TextRange {
+        interior(self.syntax(), 2)
+    }
 }
 
 impl RadioTarget {
@@ -32,6 +38,12 @@ impl RadioTarget {
     #[must_use]
     pub fn key(&self) -> String {
         text_in(self.syntax(), interior(self.syntax(), 3))
+    }
+
+    /// The range of the key, between `<<<` and `>>>`.
+    #[must_use]
+    pub fn key_range(&self) -> crate::TextRange {
+        interior(self.syntax(), 3)
     }
 }
 

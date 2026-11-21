@@ -13,7 +13,7 @@ mod facts;
 mod joins;
 mod queries;
 
-pub use discovery::{Footnote, InternalAddress};
+pub use discovery::{Footnote, InternalAddress, RadioLink};
 pub use facts::{EntryFact, EntryFactValue, EntryFacts, HeaderArgsOrigin, LinkAbbrev, MacroDef};
 
 #[cfg(test)]
