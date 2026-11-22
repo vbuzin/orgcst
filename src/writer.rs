@@ -16,7 +16,7 @@ mod timestamp;
 mod equal;
 
 pub use escape::{is_valid_tag_name, quote_lesser_body, unquote_lesser_body};
-pub use heading::{TitleProblem, title_is_writable, title_problem};
+pub use heading::{TitleProblem, tag_group, title_is_writable, title_problem};
 pub use property::is_valid_property_key;
 
 pub(crate) use heading::{

@@ -9,6 +9,19 @@ a minor release may break the API.
 
 ### Added
 
+- `Operation::InsertKeyword`: a keyword line written where a file's
+  settings are read from, after the file's own property drawer and the
+  keyword lines that lead the file.
+- `Document::heading_line()`: the headline line `Operation::InsertHeading`
+  would write, checked the same way, for a caller that places the line
+  itself.
+- `PriorityAtom::from_cookie_value()`: the atom a `[#s]` cookie value names.
+- `tag_group()`: a tag group as Org writes one, `:a:b:`.
+- `LinkSearch`, with `LinkSearch::parse()`: a search inside a file read by
+  its marker (`*` a heading, `#` a custom id, `(name)` a code reference,
+  `/regexp/`, digits a line), as Org's `org-link-search` reads it, and
+  written back by its `Display`; `file_link_path()` writes a `file:` link's
+  path with its search.
 - `Operation::InsertObject`, `Operation::WrapInObject` and
   `Operation::UnwrapObject`, with `ObjectInput`: a link, a radio target or a
   target written from Org's names at an offset or around a range, and

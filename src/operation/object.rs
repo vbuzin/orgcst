@@ -14,7 +14,7 @@ use crate::writer::{
     invalid_link_description, render_checkbox, render_link, render_link_description_insert,
 };
 use crate::{
-    Document, NodeRef, OperationError, OrgSyntaxKind, TextRange, escape_link_path,
+    Document, NodeRef, OperationError, OrgSyntaxKind, TextRange, TextSize, escape_link_path,
     unescape_link_path,
 };
 
@@ -69,6 +69,54 @@ pub(super) fn compile_set_keyword(
         return optional_part_edit(doc, span, None)?.into_edit_set(doc);
     }
     replace_content_or_fill(doc, part, keyword.value_fill_insert_point(), value)
+}
+
+pub(super) fn compile_insert_keyword(
+    doc: &Document,
+    key: &str,
+    value: &str,
+) -> Result<EditSet, OperationError> {
+    if key.is_empty()
+        || key.contains(|c: char| c.is_whitespace() || c == ':')
+        || value.contains(['\n', '\r'])
+    {
+        return Err(OperationError::InvalidKeyword);
+    }
+    // After the file's own drawer, then past the keyword lines that lead
+    // the file.
+    let mut at = doc
+        .file_property_drawer()
+        .map_or(TextSize::from(0), |d| d.syntax().text_range().end());
+    let source = doc.source();
+    loop {
+        // A keyword's node holds the blank lines after it; its own line
+        // ends at its first newline.
+        let next = doc
+            .keywords()
+            .find(|k| k.syntax().text_range().start() == at)
+            .map(|k| {
+                let start = usize::from(at);
+                let end = source[start..]
+                    .find('\n')
+                    .map_or(source.len(), |i| start + i + 1);
+                TextSize::try_from(end).unwrap_or(k.syntax().text_range().end())
+            });
+        match next {
+            Some(end) if end > at => at = end,
+            _ => break,
+        }
+    }
+    let mut line = String::new();
+    // A keyword ending the text without its newline gets one first.
+    if usize::from(at) > 0 && !source[..usize::from(at)].ends_with('\n') {
+        line.push('\n');
+    }
+    line.push_str("#+");
+    line.push_str(key);
+    line.push_str(": ");
+    line.push_str(value);
+    line.push('\n');
+    Ok(EditSet::single(source, TextRange::empty(at), line)?)
 }
 
 pub(super) fn compile_set_link_path(
@@ -246,6 +294,43 @@ mod tests {
             "file+sys:~/a\n",
             &ParseConfig::default().with_link_types(["file+sys"]),
         )
+    }
+
+    fn insert_keyword(key: &str, value: &str) -> Operation {
+        Operation::InsertKeyword {
+            key: key.to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    #[test]
+    fn insert_keyword_goes_after_the_file_drawer_and_the_leading_keywords() {
+        let (_, text) = compile_write(&parse(""), &insert_keyword("TITLE", "Plans"));
+        assert_eq!(text, "#+TITLE: Plans\n");
+        let (_, text) = compile_write(&parse("* A\n"), &insert_keyword("TITLE", "Plans"));
+        assert_eq!(text, "#+TITLE: Plans\n* A\n");
+        let doc = parse(":PROPERTIES:\n:ID: n-1\n:END:\n#+TITLE: Plans\n\nText.\n");
+        let (_, text) = compile_write(&doc, &insert_keyword("FILETAGS", ":home:"));
+        assert_eq!(
+            text,
+            ":PROPERTIES:\n:ID: n-1\n:END:\n#+TITLE: Plans\n#+FILETAGS: :home:\n\nText.\n"
+        );
+        let (_, text) = compile_write(&parse("#+TITLE: x"), &insert_keyword("AUTHOR", ""));
+        assert_eq!(text, "#+TITLE: x\n#+AUTHOR: \n");
+    }
+
+    #[test]
+    fn insert_keyword_refuses_a_key_or_value_that_cannot_be_written() {
+        let doc = parse("");
+        for (key, value) in [("", "x"), ("A B", "x"), ("A:B", "x"), ("TITLE", "a\nb")] {
+            assert!(
+                matches!(
+                    compile(&doc, &insert_keyword(key, value)),
+                    Err(OperationError::InvalidKeyword)
+                ),
+                "{key:?} {value:?}"
+            );
+        }
     }
 
     #[test]

@@ -230,6 +230,20 @@ impl PriorityAtom {
     /// writer and the `#+PRIORITIES:` parser all use this constant.
     pub const MAX_NUMBER: u8 = 64;
 
+    /// The atom a `[#s]` cookie value names, when `s` is one: a single
+    /// letter A to Z, or a number 0 to 64 written as Org writes it.
+    #[must_use]
+    pub fn from_cookie_value(s: &str) -> Option<Self> {
+        if !Self::is_cookie_value(s) {
+            return None;
+        }
+        let mut chars = s.chars();
+        match (chars.next(), chars.next()) {
+            (Some(c), None) if c.is_ascii_uppercase() => Some(Self::Letter(c)),
+            _ => s.parse().ok().map(Self::Number),
+        }
+    }
+
     /// Whether `s` is a valid `[#s]` cookie value (`org-priority-value-regexp`).
     ///
     /// Single A-Z, or a decimal 0-64 with no leading zero on two-digit values
@@ -815,6 +829,25 @@ pub(crate) mod delta {
 #[cfg(test)]
 mod tests {
     use super::delta::parse_config_delta;
+
+    #[test]
+    fn a_cookie_value_names_its_atom() {
+        assert_eq!(
+            PriorityAtom::from_cookie_value("A"),
+            Some(PriorityAtom::Letter('A'))
+        );
+        assert_eq!(
+            PriorityAtom::from_cookie_value("64"),
+            Some(PriorityAtom::Number(64))
+        );
+        assert_eq!(
+            PriorityAtom::from_cookie_value("7"),
+            Some(PriorityAtom::Number(7))
+        );
+        for no in ["a", "65", "05", "", "AB"] {
+            assert_eq!(PriorityAtom::from_cookie_value(no), None, "{no:?}");
+        }
+    }
     use super::*;
     use TodoInterpretation::{Sequence, Type};
 

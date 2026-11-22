@@ -312,6 +312,17 @@ pub enum Operation {
         /// The new value.
         value: String,
     },
+    /// Write a keyword line, `#+KEY: value`, where a file's settings are
+    /// read from: after the file's own property drawer, if it has one, and
+    /// after the keyword lines that lead the file. An empty `value` writes
+    /// `#+KEY: `, ready for a value typed after it. A key that is empty, holds whitespace or a colon, or a
+    /// value with a newline, is [`OperationError::InvalidKeyword`].
+    InsertKeyword {
+        /// The keyword's key, as written (`TITLE`).
+        key: String,
+        /// Its value.
+        value: String,
+    },
     /// Replace the link path. Pass the unescaped path; a bracket link escapes
     /// it on write.
     ///
@@ -678,6 +689,7 @@ pub fn compile(doc: &Document, op: &Operation) -> Result<EditSet, OperationError
         } => structure::compile_relevel(doc, *target, *with_subtree, *by, false),
         Operation::ToggleCheckbox { target } => object::compile_toggle_checkbox(doc, *target),
         Operation::SetKeyword { target, value } => object::compile_set_keyword(doc, *target, value),
+        Operation::InsertKeyword { key, value } => object::compile_insert_keyword(doc, key, value),
         Operation::SetLinkPath { target, path } => {
             object::compile_set_link_path(doc, *target, path)
         }
@@ -764,6 +776,19 @@ impl Document {
     /// Same as [`compile_all`].
     pub fn compile_all(&self, ops: &[Operation]) -> Result<EditSet, OperationError> {
         compile_all(self, ops)
+    }
+
+    /// The headline line [`Operation::InsertHeading`] would write for
+    /// `heading` in this snapshot, ending with one `\n`, for a caller that
+    /// places the line itself (on an empty line, replacing it).
+    ///
+    /// # Errors
+    ///
+    /// As [`Operation::InsertHeading`]: a level of `0`, a level that would
+    /// read as an inline task, a keyword or priority outside the snapshot's
+    /// vocabulary, or a title or tag that cannot be written.
+    pub fn heading_line(&self, heading: &HeadingInput) -> Result<String, OperationError> {
+        structure::render_heading_input(self, heading)
     }
 }
 
@@ -1054,6 +1079,13 @@ pub(crate) fn assert_envelope(doc: &Document, op: &Operation, set: &EditSet) {
                 dests.push(c.start());
             }
             assert_construct_envelope(set, keyword.range(), &dests);
+        }
+        Operation::InsertKeyword { .. } => {
+            // One line, inserted, ending with its newline.
+            assert_eq!(set.len(), 1, "one insert");
+            let edit = &set.edits()[0];
+            assert!(edit.range.is_empty(), "an insert");
+            assert!(edit.replacement.ends_with('\n') && edit.replacement.contains("#+"));
         }
         Operation::SetLinkDescription { target, .. } => {
             let link = Link::cast(target.resolve(doc).expect("live link")).expect("LINK");

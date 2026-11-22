@@ -15,6 +15,21 @@ pub(super) fn compile_insert_heading(
     at: SubtreeDest,
     heading: &HeadingInput,
 ) -> Result<EditSet, OperationError> {
+    let rendered = render_heading_input(doc, heading)?;
+    let dest = resolve_subtree_dest(doc, at)?;
+    let replacement = wrap_insert(dest.point, &rendered);
+    Ok(EditSet::single(
+        doc.source(),
+        TextRange::empty(dest.point.offset()),
+        replacement,
+    )?)
+}
+
+/// `heading` checked against `doc` and written as a whole headline line.
+pub(super) fn render_heading_input(
+    doc: &Document,
+    heading: &HeadingInput,
+) -> Result<String, OperationError> {
     if heading.level == 0 {
         return Err(OperationError::InvalidLevel);
     }
@@ -27,9 +42,8 @@ pub(super) fn compile_insert_heading(
     if let Some(atom) = heading.priority {
         reject_priority(doc, atom)?;
     }
-    let dest = resolve_subtree_dest(doc, at)?;
     let tags: Vec<&str> = heading.tags.iter().map(String::as_str).collect();
-    let rendered = render_heading(
+    render_heading(
         HeadingSpec {
             level: heading.level,
             todo: heading.todo.as_deref(),
@@ -40,13 +54,7 @@ pub(super) fn compile_insert_heading(
         },
         doc.config(),
     )
-    .map_err(map_synthesis)?;
-    let replacement = wrap_insert(dest.point, &rendered);
-    Ok(EditSet::single(
-        doc.source(),
-        TextRange::empty(dest.point.offset()),
-        replacement,
-    )?)
+    .map_err(map_synthesis)
 }
 
 pub(super) fn compile_delete_subtree(
@@ -244,6 +252,31 @@ pub(super) fn shifted_level(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn heading_line_is_what_insert_heading_writes() {
+        let doc = crate::parse("#+TODO: TODO | DONE\n");
+        let line = doc
+            .heading_line(&crate::HeadingInput {
+                level: 2,
+                title: "Call".to_owned(),
+                todo: Some("TODO".to_owned()),
+                priority: None,
+                commented: false,
+                tags: Vec::new(),
+            })
+            .expect("writes");
+        assert_eq!(line, "** TODO Call\n");
+        let refused = doc.heading_line(&crate::HeadingInput {
+            level: 0,
+            title: String::new(),
+            todo: None,
+            priority: None,
+            commented: false,
+            tags: Vec::new(),
+        });
+        assert_eq!(refused, Err(crate::OperationError::InvalidLevel));
+    }
     use crate::ast::{AstNode, Heading, Headline, InlineTask, InsertPoint};
     use crate::edit::EditSet;
     use crate::operation::compile_write;

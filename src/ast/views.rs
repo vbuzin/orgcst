@@ -65,8 +65,9 @@ pub use keyword::{
 pub use latex::{LatexEnvironment, LatexEnvironmentPart, LatexFragment, LatexFragmentShape};
 pub use line_break::LineBreak;
 pub use link::{
-    ClassifiedLink, Link, LinkDescription, LinkPart, LinkShape, LinkTarget, classify_link,
-    escape_link_path, normalize_angle_link_ws, normalize_bracket_link_ws, unescape_link_path,
+    ClassifiedLink, Link, LinkDescription, LinkPart, LinkSearch, LinkShape, LinkTarget,
+    classify_link, escape_link_path, file_link_path, normalize_angle_link_ws,
+    normalize_bracket_link_ws, unescape_link_path,
 };
 pub use list::{
     Bullet, CheckboxState, Counter, CounterForm, Item, ItemPart, ItemTag, ListKind, PlainList,

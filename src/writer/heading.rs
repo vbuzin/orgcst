@@ -124,6 +124,23 @@ pub(crate) fn render_priority(atom: PriorityAtom) -> Result<String, SynthesisErr
     }
 }
 
+/// A tag group as Org writes one, `:a:b:`, for a heading's tags or a
+/// `#+FILETAGS` value; empty for no tags.
+///
+/// # Errors
+///
+/// [`crate::OperationError::InvalidTag`] for a name Org cannot read as a tag.
+pub fn tag_group(names: &[&str]) -> Result<String, crate::OperationError> {
+    render_tags(names).map_err(|_| {
+        crate::OperationError::InvalidTag(
+            names
+                .iter()
+                .find(|n| !is_valid_tag_name(n))
+                .map_or_else(String::new, |n| (*n).to_owned()),
+        )
+    })
+}
+
 pub(crate) fn render_tags(names: &[&str]) -> Result<String, SynthesisError> {
     if names.is_empty() {
         return Ok(String::new());

@@ -49,6 +49,75 @@ pub enum LinkPart {
     Description,
 }
 
+/// A search inside a file, as Org's `org-link-search` reads one: the text
+/// after `::` in a `file:` link, or a link with no type. Its marker is
+/// syntax; what it finds is the caller's.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum LinkSearch {
+    /// `*Title`: a heading by its title.
+    Heading(String),
+    /// `#id`: a heading by its custom id.
+    CustomId(String),
+    /// `(name)`: a code reference.
+    CodeRef(String),
+    /// `/regexp/`: a regular expression.
+    Regex(String),
+    /// Digits alone: a line number, as a `file:` link's search reads them.
+    Line(u32),
+    /// Anything else: a dedicated target, a named element, or words.
+    Text(String),
+}
+
+impl LinkSearch {
+    /// Read `search` by its marker.
+    #[must_use]
+    pub fn parse(search: &str) -> Self {
+        if let Some(title) = search.strip_prefix('*') {
+            return Self::Heading(title.to_owned());
+        }
+        if let Some(id) = search.strip_prefix('#') {
+            return Self::CustomId(id.to_owned());
+        }
+        if search.len() >= 2 && search.starts_with('(') && search.ends_with(')') {
+            return Self::CodeRef(search[1..search.len() - 1].to_owned());
+        }
+        if search.len() >= 2 && search.starts_with('/') && search.ends_with('/') {
+            return Self::Regex(search[1..search.len() - 1].to_owned());
+        }
+        if !search.is_empty()
+            && search.bytes().all(|b| b.is_ascii_digit())
+            && let Ok(line) = search.parse()
+        {
+            return Self::Line(line);
+        }
+        Self::Text(search.to_owned())
+    }
+}
+
+impl std::fmt::Display for LinkSearch {
+    /// The search as Org writes it, its marker and all.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Heading(title) => write!(f, "*{title}"),
+            Self::CustomId(id) => write!(f, "#{id}"),
+            Self::CodeRef(name) => write!(f, "({name})"),
+            Self::Regex(re) => write!(f, "/{re}/"),
+            Self::Line(line) => write!(f, "{line}"),
+            Self::Text(text) => f.write_str(text),
+        }
+    }
+}
+
+/// A `file:` link's path as Org writes it: `file:path`, and `::search` after
+/// it when there is one.
+#[must_use]
+pub fn file_link_path(path: &str, search: Option<&LinkSearch>) -> String {
+    match search {
+        Some(search) => format!("file:{path}::{search}"),
+        None => format!("file:{path}"),
+    }
+}
+
 /// What a link points to, by type.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LinkTarget {
@@ -583,6 +652,31 @@ fn file_classified(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_search_is_read_by_its_marker() {
+        assert_eq!(
+            LinkSearch::parse("*Plan"),
+            LinkSearch::Heading("Plan".to_owned())
+        );
+        assert_eq!(
+            LinkSearch::parse("#plan-1"),
+            LinkSearch::CustomId("plan-1".to_owned())
+        );
+        assert_eq!(
+            LinkSearch::parse("(ref)"),
+            LinkSearch::CodeRef("ref".to_owned())
+        );
+        assert_eq!(
+            LinkSearch::parse("/a.c/"),
+            LinkSearch::Regex("a.c".to_owned())
+        );
+        assert_eq!(
+            LinkSearch::parse("words"),
+            LinkSearch::Text("words".to_owned())
+        );
+        assert_eq!(LinkSearch::parse("/"), LinkSearch::Text("/".to_owned()));
+    }
     use crate::ast::layout::LinkOpeners;
     use crate::ast::{HasObjects, HasParts, Object, PartSpan};
     use crate::parse;
