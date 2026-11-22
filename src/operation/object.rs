@@ -113,8 +113,11 @@ pub(super) fn compile_insert_keyword(
     }
     line.push_str("#+");
     line.push_str(key);
-    line.push_str(": ");
-    line.push_str(value);
+    line.push(':');
+    if !value.is_empty() {
+        line.push(' ');
+        line.push_str(value);
+    }
     line.push('\n');
     Ok(EditSet::single(source, TextRange::empty(at), line)?)
 }
@@ -304,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn insert_keyword_goes_after_the_file_drawer_and_the_leading_keywords() {
+    fn insert_keyword_goes_at_the_head_after_the_file_drawer_and_the_leading_keywords() {
         let (_, text) = compile_write(&parse(""), &insert_keyword("TITLE", "Plans"));
         assert_eq!(text, "#+TITLE: Plans\n");
         let (_, text) = compile_write(&parse("* A\n"), &insert_keyword("TITLE", "Plans"));
@@ -316,7 +319,7 @@ mod tests {
             ":PROPERTIES:\n:ID: n-1\n:END:\n#+TITLE: Plans\n#+FILETAGS: :home:\n\nText.\n"
         );
         let (_, text) = compile_write(&parse("#+TITLE: x"), &insert_keyword("AUTHOR", ""));
-        assert_eq!(text, "#+TITLE: x\n#+AUTHOR: \n");
+        assert_eq!(text, "#+TITLE: x\n#+AUTHOR:\n");
     }
 
     #[test]

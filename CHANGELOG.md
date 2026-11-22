@@ -9,9 +9,8 @@ a minor release may break the API.
 
 ### Added
 
-- `Operation::InsertKeyword`: a keyword line written where a file's
-  settings are read from, after the file's own property drawer and the
-  keyword lines that lead the file.
+- `Operation::InsertKeyword`: a keyword line written at the head of the
+  file, after its own property drawer and the keyword lines that lead it.
 - `Document::heading_line()`: the headline line `Operation::InsertHeading`
   would write, checked the same way, for a caller that places the line
   itself.

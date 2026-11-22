@@ -312,11 +312,13 @@ pub enum Operation {
         /// The new value.
         value: String,
     },
-    /// Write a keyword line, `#+KEY: value`, where a file's settings are
-    /// read from: after the file's own property drawer, if it has one, and
-    /// after the keyword lines that lead the file. An empty `value` writes
-    /// `#+KEY: `, ready for a value typed after it. A key that is empty, holds whitespace or a colon, or a
-    /// value with a newline, is [`OperationError::InvalidKeyword`].
+    /// Write a keyword line, `#+KEY: value`, at the head of the file: after
+    /// the file's own property drawer, if it has one, and after the keyword
+    /// lines that lead the file. Org reads a setting anywhere in the file;
+    /// the head is where a new one is written. An empty `value` writes
+    /// `#+KEY:`, as [`Operation::SetKeyword`] leaves an emptied one. A key
+    /// that is empty, holds whitespace or a colon, or a value with a
+    /// newline, is [`OperationError::InvalidKeyword`].
     InsertKeyword {
         /// The keyword's key, as written (`TITLE`).
         key: String,
@@ -780,7 +782,7 @@ impl Document {
 
     /// The headline line [`Operation::InsertHeading`] would write for
     /// `heading` in this snapshot, ending with one `\n`, for a caller that
-    /// places the line itself (on an empty line, replacing it).
+    /// places the line itself.
     ///
     /// # Errors
     ///
