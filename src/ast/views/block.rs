@@ -5,6 +5,13 @@
 //! comment), objects (verse) or elements (quote, center, special, dynamic).
 //! [`Block`] implements neither `HasElements` nor `HasObjects`; reach the body
 //! through [`Block::body`], which says which of the three it is.
+//!
+//! Inside a verbatim block a line that would read as a heading or a keyword
+//! is escaped with a comma (`,*`, `,#+`); [`Block::value`] gives the body
+//! with that escaping undone, and [`escape_code`] and [`unescape_code`] are
+//! the rule itself.
+
+use std::borrow::Cow;
 
 use crate::TextRange;
 use crate::ast::layout::{
@@ -146,6 +153,24 @@ impl Block {
         }
     }
 
+    /// The body as Org reads it: the text of a src, example or export block
+    /// with its comma escaping undone ([`unescape_code`]), as `org-element`
+    /// gives a block's `:value`. `None` for the other kinds, whose body is
+    /// not code.
+    #[must_use]
+    pub fn value(&self) -> Option<String> {
+        match self.kind() {
+            BlockKind::Src | BlockKind::Example | BlockKind::Export => {
+                let BlockBody::Verbatim(range) = self.body() else {
+                    return None;
+                };
+                let raw = text_in(self.syntax(), range);
+                Some(unescape_code(&raw).into_owned())
+            }
+            _ => None,
+        }
+    }
+
     /// Span of a container block's body elements; zero-width after the begin
     /// line when empty.
     ///
@@ -261,6 +286,81 @@ fn first_line_part(syntax: &SyntaxNode, part: BlockPart) -> PartSpan {
     optional_after(syntax, carved, dest)
 }
 
+/// Undo the escaping of code inside a block, as Org's
+/// `org-unescape-code-in-string` does.
+///
+/// On a line whose first characters after any spaces and tabs are one or
+/// more commas followed by `*` or `#+`, one comma is removed: `,*` reads
+/// `*` and `,,#+` reads `,#+`. Every other line is left as it is.
+#[must_use]
+pub fn unescape_code(raw: &str) -> Cow<'_, str> {
+    map_code_lines(
+        raw,
+        |commas| commas > 0,
+        |out| {
+            out.pop();
+        },
+    )
+}
+
+/// Escape code for the inside of a block, as Org's
+/// `org-escape-code-in-string` does.
+///
+/// A comma is added before a line whose first characters after any spaces
+/// and tabs are `*`, `#+`, or commas followed by either, so the line is not
+/// read as a heading or a keyword.
+///
+/// `unescape_code(&escape_code(s)) == s` for every `s`.
+#[must_use]
+pub fn escape_code(code: &str) -> Cow<'_, str> {
+    map_code_lines(code, |_| true, |out| out.push(','))
+}
+
+/// Rewrite every line of `s` that starts, after spaces and tabs, with a run
+/// of commas (possibly empty) and then `*` or `#+`, when `applies(run)`:
+/// `edit` is called with the output written up to the comma run's end.
+fn map_code_lines(
+    s: &str,
+    applies: impl Fn(usize) -> bool,
+    edit: impl Fn(&mut String),
+) -> Cow<'_, str> {
+    let bytes = s.as_bytes();
+    let mut out: Option<String> = None;
+    let mut copied = 0;
+    let mut line = 0;
+    while line < bytes.len() {
+        let mut i = line;
+        while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') {
+            i += 1;
+        }
+        let run_start = i;
+        while i < bytes.len() && bytes[i] == b',' {
+            i += 1;
+        }
+        let run = i - run_start;
+        let marked = bytes.get(i) == Some(&b'*')
+            || (bytes.get(i) == Some(&b'#') && bytes.get(i + 1) == Some(&b'+'));
+        if marked && applies(run) {
+            let o = out.get_or_insert_with(|| String::with_capacity(s.len() + 8));
+            // The comma goes, or comes, just before the mark.
+            o.push_str(&s[copied..i]);
+            edit(o);
+            copied = i;
+        }
+        line = bytes[i..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(bytes.len(), |n| i + n + 1);
+    }
+    match out {
+        Some(mut o) => {
+            o.push_str(&s[copied..]);
+            Cow::Owned(o)
+        }
+        None => Cow::Borrowed(s),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,6 +380,61 @@ mod tests {
         )
         .expect("cast");
         (doc, b)
+    }
+
+    #[test]
+    fn code_escaping_follows_org() {
+        // Org's org-unescape-code-in-string: one comma off a line of
+        // commas before `*` or `#+`.
+        assert_eq!(
+            unescape_code(",* a\n,#+b\n,,*c\n  ,*d\n"),
+            "* a\n#+b\n,*c\n  *d\n"
+        );
+        assert_eq!(unescape_code("a ,*\n,#b\n,x\n*\n"), "a ,*\n,#b\n,x\n*\n");
+        assert!(matches!(unescape_code("plain\n"), Cow::Borrowed(_)));
+        // org-escape-code-in-string: a comma before `*`, `#+` and their
+        // comma runs.
+        assert_eq!(
+            escape_code("* a\n#+b\n,*c\n\t*d\n#e\n"),
+            ",* a\n,#+b\n,,*c\n\t,*d\n#e\n"
+        );
+        for s in ["* x\n,* y\n,,#+z", "", "\n\n", "a\n  ,,,*\n#+", ",", "#"] {
+            assert_eq!(unescape_code(&escape_code(s)), s, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn value_is_the_body_unescaped_for_code_blocks() {
+        let (_, src) = block(
+            "#+begin_src org\n,* TODO %?\n,#+TITLE: x\nbody\n#+end_src\n",
+            OrgSyntaxKind::SRC_BLOCK,
+        );
+        assert_eq!(
+            src.value().as_deref(),
+            Some("* TODO %?\n#+TITLE: x\nbody\n")
+        );
+        let (_, ex) = block(
+            "#+begin_example\n,* a\n#+end_example\n",
+            OrgSyntaxKind::EXAMPLE_BLOCK,
+        );
+        assert_eq!(ex.value().as_deref(), Some("* a\n"));
+        let (_, ex) = block(
+            "#+begin_export html\n,#+x\n#+end_export\n",
+            OrgSyntaxKind::EXPORT_BLOCK,
+        );
+        assert_eq!(ex.value().as_deref(), Some("#+x\n"));
+        let (_, c) = block(
+            "#+begin_comment\n,* a\n#+end_comment\n",
+            OrgSyntaxKind::COMMENT_BLOCK,
+        );
+        assert_eq!(c.value(), None);
+        let (_, q) = block(
+            "#+begin_quote\nq\n#+end_quote\n",
+            OrgSyntaxKind::QUOTE_BLOCK,
+        );
+        assert_eq!(q.value(), None);
+        let (_, e) = block("#+begin_src\n#+end_src\n", OrgSyntaxKind::SRC_BLOCK);
+        assert_eq!(e.value().as_deref(), Some(""));
     }
 
     #[test]

@@ -9,6 +9,10 @@ a minor release may break the API.
 
 ### Added
 
+- `Block::value()`: the body of a src, example or export block with its
+  comma escaping undone, as `org-element` gives a block's `:value`;
+  `unescape_code()` and `escape_code()` are Org's
+  `org-unescape-code-in-string` and `org-escape-code-in-string`.
 - `Operation::InsertKeyword`: a keyword line written at the head of the
   file, after its own property drawer and the keyword lines that lead it.
 - `Document::heading_line()`: the headline line `Operation::InsertHeading`

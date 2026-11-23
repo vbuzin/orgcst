@@ -113,8 +113,8 @@ pub use ast::{
     StatisticsCookie, Subscript, Superscript, Table, TableCell, TableKind, TableRow, Tag, TagGroup,
     TagGroupKind, TagOrigin, Tags, Target, Task, Timestamp, TimestampDelimiters, TimestampField,
     TimestampPart, TimestampPoint, TimestampShape, TodoKeyword, ValueWord, VerseBody,
-    classify_link, escape_link_path, file_link_path, normalize_angle_link_ws,
-    normalize_bracket_link_ws, separation_after, unescape_link_path,
+    classify_link, escape_code, escape_link_path, file_link_path, normalize_angle_link_ws,
+    normalize_bracket_link_ws, separation_after, unescape_code, unescape_link_path,
 };
 pub use document::Document;
 pub use edit::{Anchor, Bias, Edit, EditSet, EditSetError};

@@ -61,9 +61,9 @@ pub use views::{
     PropertyDrawer, PropertyPart, RadioTarget, Repeater, RepeaterKind, RepeaterUnit, ScriptPart,
     Section, StatisticsCookie, Subscript, Superscript, Table, TableCell, TableKind, TableRow, Tag,
     TagOrigin, Tags, Target, Task, Timestamp, TimestampDelimiters, TimestampField, TimestampPart,
-    TimestampPoint, TimestampShape, TodoKeyword, ValueWord, VerseBody, classify_link,
+    TimestampPoint, TimestampShape, TodoKeyword, ValueWord, VerseBody, classify_link, escape_code,
     escape_link_path, file_link_path, normalize_angle_link_ws, normalize_bracket_link_ws,
-    unescape_link_path,
+    unescape_code, unescape_link_path,
 };
 
 use crate::syntax::{OrgSyntaxKind, SyntaxNode};

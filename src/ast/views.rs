@@ -37,7 +37,7 @@ mod target;
 mod task;
 mod timestamp;
 
-pub use block::{Block, BlockBody, BlockKind, BlockPart, VerseBody};
+pub use block::{Block, BlockBody, BlockKind, BlockPart, VerseBody, escape_code, unescape_code};
 pub use citation::{Citation, CitationPart, CitationReference, CitationReferencePart};
 pub use clock::{Clock, ClockPart};
 pub use comment::Comment;
