@@ -26,10 +26,8 @@ use crate::assert_max_size;
 use crate::edit::EditSet;
 use crate::parser::{self, Diagnostic, ParseConfig};
 use crate::settings;
-use crate::settings::RawTag;
 use crate::syntax::SyntaxNode;
 use rowan::{GreenNode, TextRange};
-use std::cell::OnceCell;
 use std::sync::Arc;
 
 /// Self-contained parse snapshot: source, config, tree, diagnostics.
@@ -54,10 +52,6 @@ pub struct Document {
     config: Arc<ParseConfig>,
     caller: Arc<ParseConfig>,
     diagnostics: Vec<Diagnostic>,
-    /// The tags of every live `#+FILETAGS:` line, read once on first ask:
-    /// every heading's tag chain ends in them, and reading them walks the
-    /// whole tree.
-    file_tags: OnceCell<Vec<RawTag>>,
 }
 
 /// The five `Send` parts of a snapshot. Not public: callers move a snapshot
@@ -119,7 +113,6 @@ pub(crate) fn materialize(
         caller: Arc::clone(&config),
         config,
         diagnostics,
-        file_tags: OnceCell::new(),
     }
 }
 
@@ -228,14 +221,7 @@ impl Document {
             config: parts.config,
             caller: parts.caller,
             diagnostics: parts.diagnostics,
-            file_tags: OnceCell::new(),
         }
-    }
-    /// The tags of every live `#+FILETAGS:` line, in document order, read
-    /// once for this snapshot.
-    pub(crate) fn raw_file_tags(&self) -> &[RawTag] {
-        self.file_tags
-            .get_or_init(|| crate::settings::parse_filetags_from_settings(self.root()))
     }
 
     #[must_use]
