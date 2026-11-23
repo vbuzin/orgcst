@@ -8,9 +8,8 @@ use crate::ast::{
 };
 use crate::edit::EditSet;
 use crate::writer::{
-    NodePropertySpec, PlanningKeywordSpec, TimestampSpec, is_valid_property_key,
-    render_node_property, render_planning_line, render_planning_slot, render_property_drawer,
-    render_timestamp, wrap_insert,
+    NodePropertySpec, PlanningKeywordSpec, is_valid_property_key, render_node_property,
+    render_planning_line, render_planning_slot, render_property_drawer, wrap_insert,
 };
 use crate::{Document, NodeRef, OperationError, OrgSyntaxKind, TextRange};
 
@@ -253,15 +252,7 @@ fn effective_slots(
 }
 
 fn render_input(input: &TimestampInput) -> Result<String, OperationError> {
-    render_timestamp(&TimestampSpec {
-        shape: input.shape,
-        start: input.start,
-        end: input.end,
-        repeater: input.repeater,
-        delay: input.delay,
-        diary_sexp: input.diary_sexp.as_deref(),
-    })
-    .map_err(map_synthesis)
+    crate::writer::timestamp(input)
 }
 
 fn timestamp_of(planning: &Planning, part: PlanningPart) -> Option<Timestamp> {

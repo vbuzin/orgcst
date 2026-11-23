@@ -599,7 +599,7 @@ pub(super) fn empty_edit_set(src: &str) -> EditSet {
     }
 }
 
-pub(super) fn map_synthesis(err: SynthesisError) -> OperationError {
+pub(crate) fn map_synthesis(err: SynthesisError) -> OperationError {
     match err {
         SynthesisError::InvalidTag(s) => OperationError::InvalidTag(s),
         SynthesisError::InvalidTitle(p) => OperationError::InvalidTitle(p),

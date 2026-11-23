@@ -9,6 +9,8 @@ a minor release may break the API.
 
 ### Added
 
+- `timestamp()`: a timestamp as Org writes one, from a `TimestampInput`,
+  the text the operations that set a timestamp write.
 - `Block::value()`: the body of a src, example or export block with its
   comma escaping undone, as `org-element` gives a block's `:value`;
   `unescape_code()` and `escape_code()` are Org's

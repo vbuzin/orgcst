@@ -17,6 +17,27 @@ pub(crate) struct TimestampSpec<'a> {
     pub diary_sexp: Option<&'a str>,
 }
 
+/// A timestamp as Org writes one (`<2026-11-23 Mon 14:05>`,
+/// `[2026-11-23 Mon]`, a range, a diary sexp), the text the operations
+/// that set a timestamp write.
+///
+/// # Errors
+///
+/// [`crate::OperationError::InvalidTimestamp`] for an input Org cannot
+/// write: a missing start, a date that does not exist, a part the shape
+/// does not take.
+pub fn timestamp(input: &crate::TimestampInput) -> Result<String, crate::OperationError> {
+    render_timestamp(&TimestampSpec {
+        shape: input.shape,
+        start: input.start,
+        end: input.end,
+        repeater: input.repeater,
+        delay: input.delay,
+        diary_sexp: input.diary_sexp.as_deref(),
+    })
+    .map_err(crate::operation::map_synthesis)
+}
+
 pub(crate) fn render_timestamp(spec: &TimestampSpec<'_>) -> Result<String, SynthesisError> {
     render_timestamp_inner(spec).map_err(SynthesisError::InvalidTimestamp)
 }
@@ -910,5 +931,34 @@ mod tests {
             }),
             InvalidDiarySexp
         );
+    }
+
+    #[test]
+    fn timestamp_writes_what_the_operations_write() {
+        let input = |shape, hour| crate::TimestampInput {
+            shape,
+            start: Some(TimestampPoint {
+                year: 2026,
+                month: 11,
+                day: 23,
+                hour,
+                minute: hour.map(|_| 5),
+            }),
+            end: None,
+            repeater: None,
+            delay: None,
+            diary_sexp: None,
+        };
+        assert_eq!(
+            super::timestamp(&input(TimestampShape::Active, None)).unwrap(),
+            "<2026-11-23 Mon>"
+        );
+        assert_eq!(
+            super::timestamp(&input(TimestampShape::Inactive, Some(14))).unwrap(),
+            "[2026-11-23 Mon 14:05]"
+        );
+        let mut missing = input(TimestampShape::Active, None);
+        missing.start = None;
+        assert!(super::timestamp(&missing).is_err());
     }
 }
