@@ -13,8 +13,7 @@ use super::{
 use crate::ast::nav;
 use crate::ast::{AstNode, Heading, Headline, Tag, TagOrigin, Task};
 use crate::settings::{
-    declared_priority_range, file_keyword_properties, parse_filetags_from_settings,
-    parse_tags_from_settings, property_key_eq,
+    declared_priority_range, file_keyword_properties, parse_tags_from_settings, property_key_eq,
 };
 use crate::{Document, PriorityRange, TodoKind, TodoSequence};
 
@@ -112,9 +111,7 @@ impl Document {
 
     /// Tags from every live `#+FILETAGS:` line, in document order.
     pub fn file_tags(&self) -> impl Iterator<Item = Tag> + '_ {
-        parse_filetags_from_settings(self.root())
-            .into_iter()
-            .map(tag_from_raw)
+        self.raw_file_tags().iter().cloned().map(tag_from_raw)
     }
 
     /// File-level properties: the property drawer at the top of the file,
@@ -304,6 +301,30 @@ mod tests {
         assert!(matches!(chain[1].1, TagOrigin::Inherited { .. }));
         assert_eq!(chain[2].0.name(), "file");
         assert!(matches!(chain[2].1, TagOrigin::FileTags));
+    }
+
+    #[test]
+    fn file_tags_belong_to_their_snapshot() {
+        let src = "#+FILETAGS: :file:\n* Heading\n";
+        let doc = parse(src);
+        let names = |d: &crate::Document| {
+            d.file_tags()
+                .map(|t| t.name().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&doc), vec!["file"]);
+        // Read once and kept: asked again, the same.
+        assert_eq!(names(&doc), vec!["file"]);
+        let at = crate::TextSize::from(u32::try_from(src.find("file:").unwrap()).unwrap());
+        let edits = crate::EditSet::single(
+            src,
+            crate::TextRange::new(at, at + crate::TextSize::from(4)),
+            "home".to_owned(),
+        )
+        .unwrap();
+        let next = doc.apply(&edits);
+        assert_eq!(names(&next), vec!["home"]);
+        assert_eq!(names(&doc), vec!["file"]);
     }
 
     #[test]
