@@ -29,6 +29,7 @@ pub(crate) use object::{
 };
 pub(crate) use planning::{PlanningKeywordSpec, render_planning_line, render_planning_slot};
 pub(crate) use property::{NodePropertySpec, render_node_property, render_property_drawer};
+#[cfg(test)]
 pub(crate) use timestamp::{TimestampSpec, render_timestamp};
 
 use crate::ast::{InsertPoint, Padding};
