@@ -472,7 +472,13 @@ enter the effective config, and today that is the TODO vocabulary:
 Everything else a document declares (`#+PRIORITIES:`, `#+TAGS:`,
 `#+FILETAGS:`, `#+PROPERTY:`, `#+LINK:` abbreviations) is read from the
 tree on demand by `Document` methods and never enters `ParseConfig`. So
-changing a priority range is not damage.
+changing a priority range is not damage. Nothing of it is kept on the
+snapshot either: a caller that asks about many headlines takes
+`Document::declarations()`, which reads what headlines inherit (the file's
+tags, its lead-in drawer, its `#+PROPERTY:` lines) in one walk and borrows
+the snapshot, as Org reads a buffer's settings once when it is set up.
+`Document::tags` and `Document::property_inherited` answer through the same
+rule, reading the file's part on each call.
 
 A document's own vocabulary always wins. There is no mode that parses a file
 while ignoring its `#+TODO:`, because Org has none and a file must open here

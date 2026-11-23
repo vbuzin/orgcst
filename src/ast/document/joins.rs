@@ -6,15 +6,15 @@
 //! `org-use-tag-inheritance` or `org-use-property-inheritance` is left to the
 //! caller.
 
+use super::declarations::{file_property, property_chain, tag_chain};
 use super::{
     DeclaredTags, Property, PropertyOrigin, TagGroup, TagGroupKind, lead_in_file_drawer,
     merged_drawer_properties, property_from_drawer, property_from_raw, tag_from_raw,
 };
-use crate::ast::nav;
-use crate::ast::{AstNode, Heading, Headline, Tag, TagOrigin, Task};
+use crate::ast::{AstNode, Headline, Tag, TagOrigin, Task};
 use crate::settings::{
     declared_priority_range, file_keyword_properties, parse_filetags_from_settings,
-    parse_tags_from_settings, property_key_eq,
+    parse_tags_from_settings,
 };
 use crate::{Document, PriorityRange, TodoKind, TodoSequence};
 
@@ -125,11 +125,15 @@ impl Document {
 
     /// The headline's own tags, then each ancestor outline's, then
     /// `#+FILETAGS:`, each with its origin.
+    ///
+    /// Each call reads the file's `#+FILETAGS:` lines from the tree; to ask
+    /// about many headlines, ask [`Document::declarations`] instead, which
+    /// reads them once.
     pub fn tags<'a>(
         &'a self,
         heading: &'a impl Headline,
     ) -> impl Iterator<Item = (Tag, TagOrigin)> + 'a {
-        tag_chain(self, heading).into_iter()
+        tag_chain(heading, self.file_tags()).into_iter()
     }
 
     /// The property `key` from the task's own drawer, without inheritance.
@@ -147,56 +151,24 @@ impl Document {
     /// inline task, its enclosing outline first), then the file's property
     /// drawer, then `#+PROPERTY:` lines. Values are inherited only from
     /// outlines, never from another inline task.
+    ///
+    /// The file's `#+PROPERTY:` lines are read from the tree on each call;
+    /// to ask about many headlines, ask [`Document::declarations`] instead.
     #[must_use]
     pub fn property_inherited(
         &self,
         task: impl Into<Task>,
         key: &str,
     ) -> Option<(Property, PropertyOrigin)> {
-        let task = task.into();
-        if let Some(v) = property_from_drawer(task.property_drawer(), key) {
-            return Some((v, PropertyOrigin::Local));
-        }
-        for outline in nav::inherited_outlines(task.syntax()) {
-            if let Some(v) = property_from_drawer(outline.property_drawer(), key) {
-                return Some((v, PropertyOrigin::Inherited { from: outline }));
-            }
-        }
-        if let Some(drawer) = lead_in_file_drawer(self)
-            && let Some(v) = property_from_drawer(Some(drawer), key)
-        {
-            return Some((v, PropertyOrigin::FileDrawer));
-        }
-        file_keyword_properties(self.root())
-            .into_iter()
-            .map(property_from_raw)
-            .find(|p| property_key_eq(p.key(), key))
-            .map(|v| (v, PropertyOrigin::FileKeyword))
-    }
-}
-
-fn tag_chain(doc: &Document, heading: &impl Headline) -> Vec<(Tag, TagOrigin)> {
-    let mut out = Vec::new();
-    if let Some(tags) = heading.tags() {
-        out.extend(tags.iter().map(|t| (t, TagOrigin::Written)));
-    }
-    for outline in nav::inherited_outlines(heading.syntax()) {
-        push_inherited_tags(&mut out, &outline.heading());
-    }
-    out.extend(doc.file_tags().map(|t| (t, TagOrigin::FileTags)));
-    out
-}
-
-fn push_inherited_tags(out: &mut Vec<(Tag, TagOrigin)>, heading: &Heading) {
-    if let Some(tags) = heading.tags() {
-        for t in tags.iter() {
-            out.push((
-                t,
-                TagOrigin::Inherited {
-                    from: heading.clone(),
-                },
-            ));
-        }
+        property_chain(&task.into(), key).or_else(|| {
+            file_property(
+                lead_in_file_drawer(self),
+                file_keyword_properties(self.root())
+                    .into_iter()
+                    .map(property_from_raw),
+                key,
+            )
+        })
     }
 }
 
