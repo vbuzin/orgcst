@@ -307,8 +307,7 @@ pub fn unescape_code(raw: &str) -> Cow<'_, str> {
 /// `org-escape-code-in-string` does.
 ///
 /// A comma is added before a line whose first characters after any spaces
-/// and tabs are `*`, `#+`, or commas followed by either, so the line is not
-/// read as a heading or a keyword.
+/// and tabs are `*`, `#+`, or commas followed by either.
 ///
 /// `unescape_code(&escape_code(s)) == s` for every `s`.
 #[must_use]
