@@ -7,6 +7,13 @@ a minor release may break the API.
 
 ## [Unreleased]
 
+### Fixed
+
+- `WrapInElement` and `SetElementName` refuse a result whose block would not
+  keep the elements it was given: a verse holds only text, so a list or a
+  block wrapped in one, or a quote holding them renamed to one, is
+  `NotAllowedHere`.
+
 ### Added
 
 - `Operation::ExtendElement`: the element right after a block or a drawer

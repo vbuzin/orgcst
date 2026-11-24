@@ -423,7 +423,9 @@ pub enum Operation {
     /// `element` is not a block or a drawer with empty contents, or its name
     /// cannot be written; [`OperationError::NotAllowedHere`] when the result
     /// would not read back as the new element holding the run, every other
-    /// node as it was (a drawer inside a drawer).
+    /// node as it was (a drawer inside a drawer, a block inside one of its own
+    /// name), or the run would not keep its elements inside it: a verse holds
+    /// only text, so only paragraphs become its lines.
     WrapInElement {
         /// The run of elements to wrap.
         range: TextRange,
@@ -455,6 +457,8 @@ pub enum Operation {
     /// Rename a block (both its begin and its end line) or a drawer. A block
     /// renamed between a kind that holds code (src, example, export) and one
     /// that holds Org text has its contents escaped or unescaped to match.
+    /// A rename whose contents would not keep their elements (a quote holding
+    /// a list turned into a verse) is [`OperationError::NotAllowedHere`].
     /// A dynamic block is [`OperationError::WrongKind`]; a name that would
     /// not read back as the block's or the drawer's name (empty, holding
     /// whitespace) is [`OperationError::InvalidText`].

@@ -457,6 +457,7 @@ pub(super) fn compile_wrap_in_element(
     let wrapped = TextRange::at(start, written);
     if !holds
         || !new.text_range().contains_range(wrapped)
+        || !keeps_inside(doc, TextRange::new(start, end), false, &next, &new)
         || !same_outside(
             doc,
             &first,
@@ -636,14 +637,75 @@ pub(super) fn compile_set_element_name(
         .root()
         .descendants()
         .find(|n| n.kind() == to && n.text_range().start() == start);
-    let Some(renamed) = renamed else {
-        return Err(OperationError::NotAllowedHere {
-            kind: to,
-            scope: node.parent().map_or(OrgSyntaxKind::DOCUMENT, |p| p.kind()),
-        });
+    let refused = OperationError::NotAllowedHere {
+        kind: to,
+        scope: node.parent().map_or(OrgSyntaxKind::DOCUMENT, |p| p.kind()),
     };
-    let _ = renamed;
+    let Some(renamed) = renamed else {
+        return Err(refused);
+    };
+    let (_, body, _) = element_lines(doc, &node);
+    if !keeps_inside(doc, body, is_opaque(from), &next, &renamed) {
+        return Err(refused);
+    }
     Ok(set)
+}
+
+/// Whether the text a block now holds keeps the structure it had in
+/// `range` of `doc`: the same elements and objects, but for the paragraphs
+/// a verse block's lines do not make. A block that holds code keeps
+/// whatever it was given as its text, and text that was code (`from_code`)
+/// is read as Org once it is out, so neither is compared.
+fn keeps_inside(
+    doc: &Document,
+    range: TextRange,
+    from_code: bool,
+    next: &Document,
+    block: &SyntaxNode,
+) -> bool {
+    if from_code || is_opaque(block.kind()) {
+        return true;
+    }
+    // The nodes in `within` under `root`, the paragraphs left out, from the
+    // elements down: never `root` itself, nor a node holding the range.
+    let inner = |root: &SyntaxNode, within: TextRange| {
+        root.descendants()
+            .filter(|n| n != root && within.contains_range(n.text_range()))
+            .filter(|n| !n.text_range().is_empty() && n.kind() != OrgSyntaxKind::PARAGRAPH)
+            .map(|n| n.kind())
+            .collect::<Vec<_>>()
+    };
+    let body = match Block::cast(block.clone()) {
+        Some(b) => block_interior(next, &b),
+        None => Drawer::cast(block.clone()).map_or(block.text_range(), |d| d.body_range()),
+    };
+    inner(&container_of(doc, range), range) == inner(block, body)
+}
+
+/// The innermost node whose elements tile `range`: the one holding it that
+/// is not an element inside it.
+fn container_of(doc: &Document, range: TextRange) -> SyntaxNode {
+    let mut node = doc.root().clone();
+    'down: loop {
+        for child in node.children() {
+            let r = child.text_range();
+            if r.contains_range(range)
+                && !(range.contains_range(r) && Element::can_cast(child.kind()))
+            {
+                node = child;
+                continue 'down;
+            }
+        }
+        return node;
+    }
+}
+
+/// Whether a block of `kind` holds its body as opaque text (src, example,
+/// export, comment), as the parser reads it.
+fn is_opaque(kind: OrgSyntaxKind) -> bool {
+    Block::can_cast(kind)
+        && crate::parser::grammar::forms::block::block_body_mode(kind)
+            == crate::parser::grammar::drive::frame::BodyMode::Opaque
 }
 
 /// The block or drawer `target` names.
@@ -1147,5 +1209,37 @@ mod tests {
             extend(":A:\nx\n:END:\n:B:\ny\n:END:\n"),
             Err(OperationError::NotAllowedHere { .. })
         ));
+    }
+
+    #[test]
+    fn a_wrap_or_a_rename_keeps_what_the_block_holds() {
+        // Paragraphs become a verse's lines.
+        assert_eq!(
+            run("One *two*.\n", &wrap((0, 11), block("verse", "", ""))).unwrap(),
+            "#+begin_verse\nOne *two*.\n#+end_verse\n"
+        );
+        // A list or a block cannot become a verse's text.
+        assert!(matches!(
+            run("- a\n- b\n", &wrap((0, 8), block("verse", "", ""))),
+            Err(OperationError::NotAllowedHere { .. })
+        ));
+        let src = "#+begin_center\nMiddle.\n#+end_center\n";
+        assert!(matches!(
+            run(src, &wrap((0, 36), block("verse", "", ""))),
+            Err(OperationError::NotAllowedHere { .. })
+        ));
+        assert!(matches!(
+            rename("#+begin_quote\n- a\n#+end_quote\n", "verse"),
+            Err(OperationError::NotAllowedHere { .. })
+        ));
+        assert_eq!(
+            rename("#+begin_verse\nRoses *red*\n#+end_verse\n", "quote").unwrap(),
+            "#+begin_quote\nRoses *red*\n#+end_quote\n"
+        );
+        // Code takes anything as its text.
+        assert_eq!(
+            run("- a\n", &wrap((0, 4), block("example", "", ""))).unwrap(),
+            "#+begin_example\n- a\n#+end_example\n"
+        );
     }
 }
