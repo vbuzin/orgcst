@@ -45,6 +45,7 @@ pub use document::{
     TagGroupKind,
 };
 pub use portable::PortableDocument;
+pub(crate) use views::holds_code;
 pub use views::{
     AffiliatedKeywords, BabelCall, BabelCallPart, Block, BlockBody, BlockKind, BlockPart, Bullet,
     CellAddr, CellFormula, CellFormulaKind, CheckboxState, Citation, CitationPart,

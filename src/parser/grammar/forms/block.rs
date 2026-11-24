@@ -813,7 +813,7 @@ mod tests {
     }
 
     /// Comma-quoted lines stay raw in the CST: nothing is unquoted and no
-    /// escape nodes are added. Callers unquote with `unquote_lesser_body`.
+    /// escape nodes are added. Callers unescape with `unescape_code`.
     #[test]
     fn comma_quoting_stays_raw_in_block_bodies() {
         for src in [

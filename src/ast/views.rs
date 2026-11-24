@@ -37,6 +37,7 @@ mod target;
 mod task;
 mod timestamp;
 
+pub(crate) use block::holds_code;
 pub use block::{Block, BlockBody, BlockKind, BlockPart, VerseBody, escape_code, unescape_code};
 pub use citation::{Citation, CitationPart, CitationReference, CitationReferencePart};
 pub use clock::{Clock, ClockPart};

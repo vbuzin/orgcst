@@ -441,9 +441,9 @@ pub enum Operation {
     /// Rename a block (both its begin and its end line) or a drawer. A block
     /// renamed between a kind that holds code (src, example, export) and one
     /// that holds Org text has its contents escaped or unescaped to match.
-    /// A dynamic block is [`OperationError::WrongKind`]; a name that is empty
-    /// or holds whitespace, or a drawer name that is not word characters,
-    /// `-` and `_`, is [`OperationError::InvalidText`].
+    /// A dynamic block is [`OperationError::WrongKind`]; a name that would
+    /// not read back as the block's or the drawer's name (empty, holding
+    /// whitespace) is [`OperationError::InvalidText`].
     SetElementName {
         /// The block or drawer.
         target: NodeRef,

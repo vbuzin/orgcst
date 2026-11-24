@@ -8,6 +8,7 @@
 
 use std::borrow::Cow;
 
+use crate::ast::holds_code;
 use crate::ast::{AstNode, Block, BlockPart, Drawer, Element, ElementView, HasParts, escape_code};
 use crate::edit::{Edit, EditSet};
 use crate::parser::grammar::forms::block::block_kind;
@@ -117,11 +118,13 @@ fn reads_as(doc: &Document, node: &SyntaxNode, input: &ElementInput) -> bool {
         ElementInput::Block { name, contents, .. } => {
             let kind = block_kind(name, false);
             node.kind() == kind
+                && named(node, name)
                 && (holds_code(kind) || !holds_heading(doc, contents))
                 && Block::cast(node.clone()).is_some_and(|b| body_text(doc, &b) == ended(contents))
         }
-        ElementInput::Drawer { contents, .. } => {
-            !holds_heading(doc, contents)
+        ElementInput::Drawer { name, contents } => {
+            named(node, name)
+                && !holds_heading(doc, contents)
                 && Drawer::cast(node.clone())
                     .is_some_and(|d| doc.slice(d.body_range()) == ended(contents))
         }
@@ -189,23 +192,6 @@ fn ended(s: &str) -> Cow<'_, str> {
     }
 }
 
-/// Whether a block of this kind holds code, escaped with commas: the kinds
-/// whose [`Block::value`] undoes the escaping.
-fn holds_code(kind: OrgSyntaxKind) -> bool {
-    matches!(
-        kind,
-        OrgSyntaxKind::SRC_BLOCK | OrgSyntaxKind::EXAMPLE_BLOCK | OrgSyntaxKind::EXPORT_BLOCK
-    )
-}
-
-/// A block or drawer name: not empty, no whitespace.
-fn check_name(name: &str) -> Result<(), OperationError> {
-    if name.is_empty() || name.contains(char::is_whitespace) {
-        return Err(OperationError::InvalidText);
-    }
-    Ok(())
-}
-
 /// The text of `element`, each marker line indented by `indent`.
 fn render(element: &ElementInput, indent: &str) -> Result<String, OperationError> {
     match element {
@@ -214,14 +200,14 @@ fn render(element: &ElementInput, indent: &str) -> Result<String, OperationError
             parameters,
             contents,
         } => {
-            let (open, close) = block_markers(name, parameters, indent)?;
+            let (open, close) = block_markers(name, parameters, indent);
             Ok(format!(
                 "{open}{}{close}\n",
                 block_body(block_kind(name, false), contents)
             ))
         }
         ElementInput::Drawer { name, contents } => {
-            let (open, close) = drawer_markers(name, indent)?;
+            let (open, close) = drawer_markers(name, indent);
             Ok(format!("{open}{}{close}\n", ended(contents)))
         }
         ElementInput::PlainList {
@@ -269,35 +255,57 @@ fn block_body(kind: OrgSyntaxKind, contents: &str) -> String {
 }
 
 /// A block's begin line, with its line break, and its end line, without.
-fn block_markers(
-    name: &str,
-    parameters: &str,
-    indent: &str,
-) -> Result<(String, String), OperationError> {
-    check_name(name)?;
-    if parameters.contains(['\n', '\r']) {
-        return Err(OperationError::InvalidText);
-    }
+/// Whether they read back as that block is the caller's trial.
+fn block_markers(name: &str, parameters: &str, indent: &str) -> (String, String) {
     let parameters = parameters.trim();
     let open = if parameters.is_empty() {
         format!("{indent}#+begin_{name}\n")
     } else {
         format!("{indent}#+begin_{name} {parameters}\n")
     };
-    Ok((open, format!("{indent}#+end_{name}")))
+    (open, format!("{indent}#+end_{name}"))
 }
 
 /// A drawer's opener line, with its line break, and its `:END:` line,
-/// without.
-fn drawer_markers(name: &str, indent: &str) -> Result<(String, String), OperationError> {
-    check_name(name)?;
-    if !name
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
-    {
-        return Err(OperationError::InvalidText);
+/// without. Whether they read back as that drawer is the caller's trial.
+fn drawer_markers(name: &str, indent: &str) -> (String, String) {
+    (format!("{indent}:{name}:\n"), format!("{indent}:END:"))
+}
+
+/// Whether `node` is a block or drawer named `name` as written: Org's own
+/// block names compare without case, as the parser reads them.
+fn named(node: &SyntaxNode, name: &str) -> bool {
+    if let Some(d) = Drawer::cast(node.clone()) {
+        return d.name() == name;
     }
-    Ok((format!("{indent}:{name}:\n"), format!("{indent}:END:")))
+    Block::cast(node.clone()).is_some_and(|b| {
+        let read = b.block_name();
+        if b.kind() == crate::BlockKind::Special {
+            read == name
+        } else {
+            read.eq_ignore_ascii_case(name)
+        }
+    })
+}
+
+/// Refuse a name that would not be written back as a block or drawer of
+/// that name, by the same trial as [`Document::element_lines`].
+fn check_written(doc: &Document, element: &ElementInput) -> Result<(), OperationError> {
+    let empty = match element {
+        ElementInput::Block {
+            name, parameters, ..
+        } => ElementInput::Block {
+            name: name.clone(),
+            parameters: parameters.clone(),
+            contents: String::new(),
+        },
+        ElementInput::Drawer { name, .. } => ElementInput::Drawer {
+            name: name.clone(),
+            contents: String::new(),
+        },
+        _ => return Err(OperationError::InvalidText),
+    };
+    doc.element_lines(&empty).map(|_| ())
 }
 
 fn render_table(rows: &[TableRowInput], indent: &str) -> Result<String, OperationError> {
@@ -373,6 +381,7 @@ pub(super) fn compile_wrap_in_element(
     element: &ElementInput,
 ) -> Result<EditSet, OperationError> {
     let (first, last) = element_run(doc, range)?;
+    check_written(doc, element)?;
     let start = range.start();
     // Blank lines after the run stay after the new element.
     let end = content_end(doc, &last);
@@ -385,7 +394,7 @@ pub(super) fn compile_wrap_in_element(
             parameters,
             contents,
         } if contents.is_empty() => {
-            let (open, close) = block_markers(name, parameters, indent)?;
+            let (open, close) = block_markers(name, parameters, indent);
             let kind = block_kind(name, false);
             let body = if holds_code(kind) {
                 escape_code(text)
@@ -395,7 +404,7 @@ pub(super) fn compile_wrap_in_element(
             (open, close, body, kind)
         }
         ElementInput::Drawer { name, contents } if contents.is_empty() => {
-            let (open, close) = drawer_markers(name, indent)?;
+            let (open, close) = drawer_markers(name, indent);
             (open, close, Cow::Borrowed(text), OrgSyntaxKind::DRAWER)
         }
         _ => return Err(OperationError::InvalidText),
@@ -494,7 +503,13 @@ pub(super) fn compile_set_element_name(
     let node = resolve_named(doc, target)?;
     let from = node.kind();
     let (to, edits) = if from == OrgSyntaxKind::DRAWER {
-        drawer_markers(name, "")?;
+        check_written(
+            doc,
+            &ElementInput::Drawer {
+                name: name.to_owned(),
+                contents: String::new(),
+            },
+        )?;
         let drawer = Drawer::cast(node.clone()).expect("grammar: DRAWER kind always casts");
         let range = drawer.name_node().text_range();
         if doc.slice(range) == name {
@@ -508,7 +523,14 @@ pub(super) fn compile_set_element_name(
             }],
         )
     } else {
-        check_name(name)?;
+        check_written(
+            doc,
+            &ElementInput::Block {
+                name: name.to_owned(),
+                parameters: String::new(),
+                contents: String::new(),
+            },
+        )?;
         let to = block_kind(name, false);
         let (begin, end) = block_name_ranges(doc, &node);
         let mut edits = vec![Edit {

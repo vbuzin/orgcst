@@ -132,8 +132,8 @@ pub use parser::{
 pub use rowan::{TextRange, TextSize};
 pub use syntax::{OrgLanguage, OrgSyntaxKind, SyntaxElement, SyntaxNode, SyntaxToken};
 pub use writer::{
-    TimestampProblem, TitleProblem, is_valid_property_key, is_valid_tag_name, quote_lesser_body,
-    tag_group, timestamp, title_is_writable, title_problem, unquote_lesser_body,
+    TimestampProblem, TitleProblem, is_valid_property_key, is_valid_tag_name, tag_group, timestamp,
+    title_is_writable, title_problem,
 };
 
 use std::sync::Arc;

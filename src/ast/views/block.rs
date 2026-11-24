@@ -172,16 +172,13 @@ impl Block {
     /// not code.
     #[must_use]
     pub fn value(&self) -> Option<String> {
-        match self.kind() {
-            BlockKind::Src | BlockKind::Example | BlockKind::Export => {
-                let BlockBody::Verbatim(range) = self.body() else {
-                    return None;
-                };
-                let raw = text_in(self.syntax(), range);
-                Some(unescape_code(&raw).into_owned())
-            }
-            _ => None,
+        if !holds_code(self.syntax().kind()) {
+            return None;
         }
+        let BlockBody::Verbatim(range) = self.body() else {
+            return None;
+        };
+        Some(unescape_code(&text_in(self.syntax(), range)).into_owned())
     }
 
     /// Span of a container block's body elements; zero-width after the begin
@@ -299,11 +296,21 @@ fn first_line_part(syntax: &SyntaxNode, part: BlockPart) -> PartSpan {
     optional_after(syntax, carved, dest)
 }
 
+/// Whether a block of `kind` holds code escaped with commas, whose
+/// [`Block::value`] undoes the escaping: src, example and export blocks.
+pub(crate) fn holds_code(kind: OrgSyntaxKind) -> bool {
+    matches!(
+        kind,
+        OrgSyntaxKind::SRC_BLOCK | OrgSyntaxKind::EXAMPLE_BLOCK | OrgSyntaxKind::EXPORT_BLOCK
+    )
+}
+
 /// Undo the escaping of code inside a block, as Org's
 /// `org-unescape-code-in-string` does.
 ///
-/// On a line whose first characters after any spaces and tabs are one or
-/// more commas followed by `*` or `#+`, one comma is removed: `,*` reads
+/// Lines end as the parser reads them (`\n`, `\r\n` or `\r`). On a line
+/// whose first characters after any spaces and tabs are one or more commas
+/// followed by `*` or `#+`, one comma is removed: `,*` reads
 /// `*` and `,,#+` reads `,#+`. Every other line is left as it is.
 #[must_use]
 pub fn unescape_code(raw: &str) -> Cow<'_, str> {
@@ -359,10 +366,18 @@ fn map_code_lines(
             edit(o);
             copied = i;
         }
+        // A line ends as the lexer ends one: `\r\n`, `\r` or `\n`.
         line = bytes[i..]
             .iter()
-            .position(|&b| b == b'\n')
-            .map_or(bytes.len(), |n| i + n + 1);
+            .position(|&b| b == b'\n' || b == b'\r')
+            .map_or(bytes.len(), |n| {
+                let end = i + n;
+                if bytes[end] == b'\r' && bytes.get(end + 1) == Some(&b'\n') {
+                    end + 2
+                } else {
+                    end + 1
+                }
+            });
     }
     match out {
         Some(mut o) => {

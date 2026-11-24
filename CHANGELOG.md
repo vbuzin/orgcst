@@ -64,6 +64,17 @@ a minor release may break the API.
   property means is the caller's. Read `COOKIE_DATA` from the host task's
   property drawer instead.
 
+### Removed
+
+- `quote_lesser_body()` and `unquote_lesser_body()`: the same rule as
+  `escape_code()` and `unescape_code()`, which are now the one place it
+  is written.
+
+### Changed
+
+- `escape_code()` and `unescape_code()` end a line where the parser
+  does: at `\r\n`, `\r` or `\n`.
+
 ## [0.1.4] - 2026-11-12
 
 ### Fixed
