@@ -18,7 +18,10 @@ a minor release may break the API.
 
 - `Operation::ExtendElement`: the element right after a block or a drawer
   made part of it, its end line moved past that element, code escaped as
-  it comes into a src, example or export block.
+  it comes into a src, example or export block. Its edit set touches only
+  what changes, so an offset in the element taken in maps to where it is.
+- `Block::interior_range`: every line between a block's begin and end
+  lines, blank lines included, as `Drawer::body_range` is for a drawer.
 
 ## [0.2.0] - 2026-11-24
 

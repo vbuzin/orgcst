@@ -192,6 +192,15 @@ impl Block {
             .unwrap_or_else(|| TextRange::empty(first_line_end(self.syntax())))
     }
 
+    /// Every line between the begin line and the end line, blank lines
+    /// included, as a drawer's body is ([`super::Drawer::body_range`]):
+    /// zero-width after the begin line when there are none. The `Body` part
+    /// of a block holding elements spans its elements only.
+    #[must_use]
+    pub fn interior_range(&self) -> TextRange {
+        block_token_interior(self.syntax())
+    }
+
     /// Src language or export backend, when that slot is present.
     #[must_use]
     pub fn language(&self) -> Option<String> {

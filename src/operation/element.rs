@@ -158,20 +158,7 @@ fn reads_as(doc: &Document, node: &SyntaxNode, input: &ElementInput) -> bool {
 fn body_text(doc: &Document, block: &Block) -> String {
     block
         .value()
-        .unwrap_or_else(|| doc.slice(block_interior(doc, block)).to_owned())
-}
-
-/// Everything between a block's begin line and its end line.
-fn block_interior(doc: &Document, block: &Block) -> TextRange {
-    let whole = block.range();
-    let begin = block
-        .part_range(BlockPart::BeginMarker)
-        .unwrap_or_else(|| TextRange::empty(whole.start()));
-    let end = block
-        .part_range(BlockPart::EndMarker)
-        .unwrap_or_else(|| TextRange::empty(whole.end()));
-    let start = line_end(doc.source(), usize::from(begin.start()));
-    TextRange::new(start, line_start(doc.source(), end.start()).max(start))
+        .unwrap_or_else(|| doc.slice(block.interior_range()).to_owned())
 }
 
 /// Whether Org text, read on its own, holds a heading, which no block or
@@ -457,7 +444,7 @@ pub(super) fn compile_wrap_in_element(
     let wrapped = TextRange::at(start, written);
     if !holds
         || !new.text_range().contains_range(wrapped)
-        || !keeps_inside(doc, TextRange::new(start, end), false, &next, &new)
+        || !keeps_inside(doc, TextRange::new(start, end), false, &new)
         || !same_outside(
             doc,
             &first,
@@ -484,29 +471,32 @@ pub(super) fn compile_extend_element(
     // element stay after the block.
     let start = next.full_range().start();
     let end = content_end(doc, &next);
-    let moved = doc.slice(TextRange::new(close.start(), end));
-    let taken = &moved[usize::from(start - close.start())..];
-    let end_line = doc.slice(close);
+    let taken = doc.slice(TextRange::new(start, end));
+    let gap = doc.slice(TextRange::new(close.end(), start));
+    // Only what changes is edited, so every offset in the text taken in
+    // maps to where it now is: the end line goes, code is escaped where
+    // its lines need it, and the end line comes back after the element,
+    // on a line of its own.
+    let mut edits = vec![Edit {
+        range: close,
+        replacement: String::new(),
+    }];
+    if holds_code(node.kind()) {
+        edits.extend(inserted(taken, &escape_code(taken)).map(|(at, text)| Edit {
+            range: TextRange::empty(start + TextSize::from(at as u32)),
+            replacement: text.to_owned(),
+        }));
+    }
+    let line_break = if taken.ends_with('\n') { "" } else { "\n" };
+    edits.push(Edit {
+        range: TextRange::empty(end),
+        replacement: format!(
+            "{line_break}{}\n",
+            doc.slice(close).trim_end_matches(['\n', '\r'])
+        ),
+    });
+    let set = EditSet::new(doc.source(), edits)?;
     let code = holds_code(node.kind());
-    let taken_text = if code {
-        escape_code(taken)
-    } else {
-        Cow::Borrowed(taken)
-    };
-    let gap = &moved[usize::from(close.len())..usize::from(start - close.start())];
-    let (taken_text, end_line) = if taken_text.ends_with('\n') || end_line.ends_with('\n') {
-        (
-            ended(&taken_text).into_owned(),
-            end_line.trim_end_matches(['\n', '\r']).to_owned() + "\n",
-        )
-    } else {
-        (taken_text.into_owned(), end_line.to_owned())
-    };
-    let set = EditSet::single(
-        doc.source(),
-        TextRange::new(close.start(), end),
-        format!("{gap}{taken_text}{end_line}"),
-    )?;
     let next_doc = doc.apply(&set);
     let refused = OperationError::NotAllowedHere {
         kind: node.kind(),
@@ -645,7 +635,7 @@ pub(super) fn compile_set_element_name(
         return Err(refused);
     };
     let (_, body, _) = element_lines(doc, &node);
-    if !keeps_inside(doc, body, is_opaque(from), &next, &renamed) {
+    if !keeps_inside(doc, body, is_opaque(from), &renamed) {
         return Err(refused);
     }
     Ok(set)
@@ -656,13 +646,7 @@ pub(super) fn compile_set_element_name(
 /// a verse block's lines do not make. A block that holds code keeps
 /// whatever it was given as its text, and text that was code (`from_code`)
 /// is read as Org once it is out, so neither is compared.
-fn keeps_inside(
-    doc: &Document,
-    range: TextRange,
-    from_code: bool,
-    next: &Document,
-    block: &SyntaxNode,
-) -> bool {
+fn keeps_inside(doc: &Document, range: TextRange, from_code: bool, block: &SyntaxNode) -> bool {
     if from_code || is_opaque(block.kind()) {
         return true;
     }
@@ -676,7 +660,7 @@ fn keeps_inside(
             .collect::<Vec<_>>()
     };
     let body = match Block::cast(block.clone()) {
-        Some(b) => block_interior(next, &b),
+        Some(b) => b.interior_range(),
         None => Drawer::cast(block.clone()).map_or(block.text_range(), |d| d.body_range()),
     };
     inner(&container_of(doc, range), range) == inner(block, body)
@@ -729,7 +713,7 @@ fn element_lines(doc: &Document, node: &SyntaxNode) -> (TextRange, TextRange, Te
         (body, body.end())
     } else {
         let block = Block::cast(node.clone()).expect("grammar: named kinds are blocks");
-        let body = block_interior(doc, &block);
+        let body = block.interior_range();
         (body, body.end())
     };
     let close_end = line_end(doc.source(), usize::from(end_marker)).min(whole.end());
@@ -808,10 +792,19 @@ fn line_indent(doc: &Document, at: TextSize) -> &str {
     &rest[..rest.len() - rest.trim_start_matches([' ', '\t']).len()]
 }
 
-/// The start of the line holding `at`.
-fn line_start(src: &str, at: TextSize) -> TextSize {
-    let at = usize::from(at);
-    TextSize::from(src[..at].rfind('\n').map_or(0, |i| i + 1) as u32)
+/// What `new` inserts into `old`, line by line, where each line of `new`
+/// is its line of `old` with text inserted at one place (code escaped): the
+/// offset in `old` and the text.
+fn inserted<'a>(old: &'a str, new: &'a str) -> impl Iterator<Item = (usize, &'a str)> {
+    let mut at = 0;
+    old.split_inclusive('\n')
+        .zip(new.split_inclusive('\n'))
+        .filter_map(move |(o, n)| {
+            let line = at;
+            at += o.len();
+            let same = o.bytes().zip(n.bytes()).take_while(|(a, b)| a == b).count();
+            (n.len() > o.len()).then(|| (line + same, &n[same..same + n.len() - o.len()]))
+        })
 }
 
 /// The end of the line holding byte `at`, its line break included.
@@ -1197,6 +1190,19 @@ mod tests {
             extend("#+begin_example\nx\n#+end_example\n#+TITLE: t\n").unwrap(),
             "#+begin_example\nx\n,#+TITLE: t\n#+end_example\n"
         );
+        // Only what changes is edited: an offset in the element taken in
+        // maps to the same text, past the comma escaping it.
+        let src = "#+begin_example\nx\n#+end_example\n#+TITLE: t\n";
+        let doc = parse(src);
+        let set = doc
+            .compile(&Operation::ExtendElement {
+                target: NodeRef::at(TextSize::from(0), OrgSyntaxKind::EXAMPLE_BLOCK),
+            })
+            .unwrap();
+        let title = TextSize::from(src.find("TITLE").unwrap() as u32);
+        let out = doc.apply(&set);
+        let mapped = usize::from(set.map_offset(title, crate::Bias::Right));
+        assert_eq!(&out.source()[mapped..mapped + 5], "TITLE");
     }
 
     #[test]
