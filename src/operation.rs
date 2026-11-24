@@ -8,6 +8,7 @@
 //! insert points of the construct the operation targets, which its edits may
 //! not leave.
 
+mod element;
 mod field;
 mod headline;
 mod insert;
@@ -21,6 +22,7 @@ mod text;
 #[cfg(test)]
 mod envelope;
 
+pub use element::{ElementInput, TableRowInput};
 pub use insert::ObjectInput;
 pub use locate::{NodeRef, SubtreeDest, apply_locating, payload_start};
 pub use restructure::relevel_text;
@@ -409,6 +411,46 @@ pub enum Operation {
         target: NodeRef,
     },
 
+    /// Make the elements in `range` the contents of a new block or drawer.
+    /// `range` runs from the first element's start (its affiliated keywords
+    /// included) to the last one's end, all of them siblings; blank lines
+    /// after the last one stay after the new element. The markers take the
+    /// first line's indentation. In a src, example or export block the
+    /// contents are escaped as code ([`crate::escape_code`]).
+    ///
+    /// [`OperationError::InvalidOffset`] when `range` does not hold a run of
+    /// whole sibling elements; [`OperationError::InvalidText`] when
+    /// `element` is not a block or a drawer with empty contents, or its name
+    /// cannot be written; [`OperationError::NotAllowedHere`] when the result
+    /// would not read back as the new element holding the run, every other
+    /// node as it was (a drawer inside a drawer).
+    WrapInElement {
+        /// The run of elements to wrap.
+        range: TextRange,
+        /// The block or drawer, its contents empty.
+        element: ElementInput,
+    },
+    /// Remove a block's or a drawer's begin and end lines and keep its
+    /// contents where it was: code with its escaping undone, Org text as
+    /// written. Affiliated keywords before it stay, and so does the blank
+    /// line after it. A dynamic block is [`OperationError::WrongKind`].
+    UnwrapElement {
+        /// The block or drawer.
+        target: NodeRef,
+    },
+    /// Rename a block (both its begin and its end line) or a drawer. A block
+    /// renamed between a kind that holds code (src, example, export) and one
+    /// that holds Org text has its contents escaped or unescaped to match.
+    /// A dynamic block is [`OperationError::WrongKind`]; a name that is empty
+    /// or holds whitespace, or a drawer name that is not word characters,
+    /// `-` and `_`, is [`OperationError::InvalidText`].
+    SetElementName {
+        /// The block or drawer.
+        target: NodeRef,
+        /// The new name.
+        name: String,
+    },
+
     /// Replace `range` with `replacement`, for typing, pasting or any change
     /// the caller computes itself. Identical bytes compile to an empty set.
     ReplaceText {
@@ -478,10 +520,11 @@ pub enum OperationError {
     InvalidOrder,
     /// The text would not read back as the construct it is written as.
     InvalidText,
-    /// An object of `kind` may not be written in `scope` (Org's object
-    /// restrictions), or would not read back there.
+    /// A construct of `kind` may not be written in `scope` (Org's object
+    /// restrictions, or what an element may hold), or would not read back
+    /// there.
     NotAllowedHere {
-        /// The object.
+        /// The construct.
         kind: OrgSyntaxKind,
         /// The innermost node at the site.
         scope: OrgSyntaxKind,
@@ -707,6 +750,13 @@ pub fn compile(doc: &Document, op: &Operation) -> Result<EditSet, OperationError
             insert::compile_wrap_in_object(doc, *range, object)
         }
         Operation::UnwrapObject { target } => insert::compile_unwrap_object(doc, *target),
+        Operation::WrapInElement { range, element } => {
+            element::compile_wrap_in_element(doc, *range, element)
+        }
+        Operation::UnwrapElement { target } => element::compile_unwrap_element(doc, *target),
+        Operation::SetElementName { target, name } => {
+            element::compile_set_element_name(doc, *target, name)
+        }
         Operation::ReplaceText { range, replacement } => {
             text::compile_replace_text(doc, *range, replacement)
         }
@@ -1117,6 +1167,13 @@ pub(crate) fn assert_envelope(doc: &Document, op: &Operation, set: &EditSet) {
         }
         Operation::UnwrapObject { target } => {
             let node = target.resolve(doc).expect("live object");
+            assert_edits_within(set, node.text_range());
+        }
+        Operation::WrapInElement { range, .. } => {
+            assert_edits_within(set, *range);
+        }
+        Operation::UnwrapElement { target } | Operation::SetElementName { target, .. } => {
+            let node = target.resolve(doc).expect("live element");
             assert_edits_within(set, node.text_range());
         }
         Operation::ReplaceText { range, .. } => {

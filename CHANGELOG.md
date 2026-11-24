@@ -9,6 +9,16 @@ a minor release may break the API.
 
 ### Added
 
+- `Document::element_lines()` and `ElementInput`: the lines a block, a
+  drawer, a plain list, a table (`TableRowInput`) or a horizontal rule is
+  written as, by Org's names, checked by reading them back, for a caller
+  that places them itself. Code in a src, example or export block is
+  escaped; Org text that would hold a heading or end its block is refused.
+- `Operation::WrapInElement`, `Operation::UnwrapElement` and
+  `Operation::SetElementName`: a run of sibling elements made the contents
+  of a new block or drawer, a block or drawer taken out again keeping its
+  contents, and a block or drawer renamed, its contents escaped or
+  unescaped when it moves between code and Org text.
 - `timestamp()`: a timestamp as Org writes one, from a `TimestampInput`,
   the text the operations that set a timestamp write.
 - `Block::value()`: the body of a src, example or export block with its

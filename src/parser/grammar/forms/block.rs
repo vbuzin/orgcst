@@ -182,7 +182,7 @@ pub(crate) fn parse(parser: &mut Parser, shape: BlockShape) {
 /// Map a block name (plus dynamic flag) to its concrete syntax kind.
 ///
 /// Caseless comparison in place (no lowered allocation).
-fn block_kind(name: &str, dynamic: bool) -> OrgSyntaxKind {
+pub(crate) fn block_kind(name: &str, dynamic: bool) -> OrgSyntaxKind {
     if dynamic {
         return OrgSyntaxKind::DYNAMIC_BLOCK;
     }
