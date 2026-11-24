@@ -42,7 +42,7 @@ pub use block::{Block, BlockBody, BlockKind, BlockPart, VerseBody, escape_code, 
 pub use citation::{Citation, CitationPart, CitationReference, CitationReferencePart};
 pub use clock::{Clock, ClockPart};
 pub use comment::Comment;
-pub use cookie::{CookieData, CookieShape, CookieValue, StatisticsCookie};
+pub use cookie::{CookieShape, CookieValue, StatisticsCookie};
 pub use diary::DiarySexp;
 pub use drawer::{Drawer, DrawerPart};
 pub use entity::Entity;

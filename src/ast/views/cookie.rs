@@ -8,7 +8,7 @@
 use super::list::Item;
 use super::task::Task;
 use crate::ast::AstNode;
-use crate::ast::layout::{CookieLayout, cookie_layout, text_in, with_node_text};
+use crate::ast::layout::{CookieLayout, cookie_layout, text_in};
 use crate::syntax::{OrgSyntaxKind, SyntaxNode};
 
 crate::ast_node!(
@@ -43,15 +43,6 @@ pub enum CookieValue {
         /// The percentage.
         value: Option<u32>,
     },
-}
-
-/// What a headline cookie counts, from the entry's `COOKIE_DATA` property.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CookieData {
-    /// Child entries with a TODO keyword. The default.
-    Todo,
-    /// Checkboxes.
-    Checkbox,
 }
 
 impl StatisticsCookie {
@@ -116,38 +107,6 @@ impl StatisticsCookie {
             })
         })
     }
-
-    /// What this headline cookie counts, from `COOKIE_DATA` in the
-    /// [`Self::host_task`]'s own property drawer.
-    ///
-    /// As in Org, the value is a list of words: if one of them is `checkbox`
-    /// (ASCII caseless) the cookie counts checkboxes, and otherwise it counts
-    /// TODO entries. Other words, such as `recursive`, do not change the
-    /// answer. `None` when the cookie has no [`Self::host_task`].
-    #[deprecated(
-        since = "0.1.5",
-        note = "what a property means is the caller's: read `COOKIE_DATA` from the host task's property drawer; removed in 0.2.0"
-    )]
-    #[must_use]
-    pub fn cookie_data(&self) -> Option<CookieData> {
-        let task = self.host_task()?;
-        let Some(vnode) = task
-            .property_drawer()
-            .and_then(|p| p.get("COOKIE_DATA"))
-            .and_then(|np| np.value_node())
-        else {
-            return Some(CookieData::Todo);
-        };
-        with_node_text(&vnode, |s| {
-            if s.split_ascii_whitespace()
-                .any(|w| w.eq_ignore_ascii_case("checkbox"))
-            {
-                Some(CookieData::Checkbox)
-            } else {
-                Some(CookieData::Todo)
-            }
-        })
-    }
 }
 
 fn layout(cookie: &StatisticsCookie) -> CookieLayout {
@@ -171,7 +130,6 @@ fn climb<T>(start: &SyntaxNode, mut pred: impl FnMut(&SyntaxNode) -> Option<T>) 
 }
 
 #[cfg(test)]
-#[allow(deprecated)] // cookie_data stays tested until it is removed in 0.2.0
 mod tests {
     use super::*;
     use crate::ast::Outline;
@@ -263,7 +221,6 @@ mod tests {
         let (_, c) = cookie("see [1/2]\n");
         assert!(c.host_item().is_none());
         assert!(c.host_task().is_none());
-        assert!(c.cookie_data().is_none());
     }
 
     #[test]
@@ -278,7 +235,6 @@ mod tests {
         )
         .expect("cast");
         assert!(matches!(c.host_task(), Some(Task::InlineTask(_))));
-        assert_eq!(c.cookie_data(), Some(CookieData::Todo));
     }
 
     #[test]
@@ -287,46 +243,6 @@ mod tests {
         let (_, c) = cookie(src);
         assert!(c.host_item().is_none());
         assert!(c.host_task().is_none());
-        assert!(c.cookie_data().is_none());
-    }
-
-    #[test]
-    fn cookie_data_mapping() {
-        let src = "* H [1/2]\n:PROPERTIES:\n:COOKIE_DATA: checkbox\n:END:\n";
-        let (_, c) = cookie(src);
-        assert_eq!(c.cookie_data(), Some(CookieData::Checkbox));
-
-        let src = "* H [1/2]\n:PROPERTIES:\n:COOKIE_DATA: todo\n:END:\n";
-        let (_, c) = cookie(src);
-        assert_eq!(c.cookie_data(), Some(CookieData::Todo));
-
-        let src = "* H [1/2]\n:PROPERTIES:\n:COOKIE_DATA: junk\n:END:\n";
-        let (_, c) = cookie(src);
-        assert_eq!(c.cookie_data(), Some(CookieData::Todo));
-
-        let src = "* H [1/2]\n:PROPERTIES:\n:COOKIE_DATA: checkbox recursive\n:END:\n";
-        let (_, c) = cookie(src);
-        assert_eq!(c.cookie_data(), Some(CookieData::Checkbox));
-
-        let src = "* H [1/2]\n:PROPERTIES:\n:COOKIE_DATA: recursive todo\n:END:\n";
-        let (_, c) = cookie(src);
-        assert_eq!(c.cookie_data(), Some(CookieData::Todo));
-
-        let src = "* H [1/2]\n";
-        let (_, c) = cookie(src);
-        assert_eq!(c.cookie_data(), Some(CookieData::Todo));
-
-        let src = "* H [1/2]\n:PROPERTIES:\n:COOKIE_DATA:\n:END:\n";
-        let (_, c) = cookie(src);
-        assert_eq!(c.cookie_data(), Some(CookieData::Todo));
-
-        let src = "* H [1/2]\n:PROPERTIES:\n:COOKIE_DATA: TODO\n:END:\n";
-        let (_, c) = cookie(src);
-        assert_eq!(c.cookie_data(), Some(CookieData::Todo));
-
-        let src = "* H [1/2]\n:PROPERTIES:\n:COOKIE_DATA: CheckBox\n:END:\n";
-        let (_, c) = cookie(src);
-        assert_eq!(c.cookie_data(), Some(CookieData::Checkbox));
     }
 
     #[test]
