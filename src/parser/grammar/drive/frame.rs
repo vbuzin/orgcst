@@ -110,7 +110,7 @@ pub(crate) fn parse_frame(parser: &mut Parser, frame: FrameShape, open: impl FnO
 pub(crate) struct FrameEndCache {
     /// First drawer `:END:` strictly after line `i`, with no heading between.
     drawer_next: Vec<Option<Pos>>,
-    /// First dynamic `#+end:` strictly after line `i`.
+    /// First dynamic `#+end:` strictly after line `i`, with no heading between.
     dynamic_next: Vec<Option<Pos>>,
     /// Valid whole-line underscore `#+end_NAME` markers as
     /// `(caseless name key, line index)`, sorted by both.
@@ -122,8 +122,8 @@ pub(crate) struct FrameEndCache {
     /// `(caseless name key, line index)`, sorted by both.
     latex_ends: Vec<(u64, u32)>,
     /// First heading line index strictly after line `i`, or `n` (sentinel) when
-    /// none remain. A latex environment must end inside its section:
-    /// `opener < end < next_heading_after(opener)`.
+    /// none remain. A block or a latex environment must end inside its
+    /// section: `opener < end < next_heading_after(opener)`.
     next_heading_after: Vec<u32>,
 }
 
@@ -148,8 +148,9 @@ impl FrameEndCache {
         let mut latex_ends = Vec::new();
         let mut next_heading_after = vec![0u32; n];
 
-        // Reverse: propagate "next end after this line"; headings clear drawer.
-        // Also propagate next-heading-after for latex section bounds.
+        // Reverse: propagate "next end after this line"; a heading ends the
+        // section, so it clears the drawer and dynamic ends and is the bound
+        // for underscore blocks and latex environments.
         let mut next_drawer: Option<Pos> = None;
         let mut next_dynamic: Option<Pos> = None;
         let mut next_heading = n as u32;
@@ -165,6 +166,7 @@ impl FrameEndCache {
                 .is_some()
             {
                 next_drawer = None;
+                next_dynamic = None;
                 next_heading = i as u32;
             }
 
@@ -223,7 +225,8 @@ pub(crate) fn dynamic_block_end_after(parser: &Parser<'_>, line: LineView<'_, '_
     visible(parser, end)
 }
 
-/// Matching underscore `#+end_NAME` start after `line`, if visible.
+/// Matching underscore `#+end_NAME` start after `line` and before the next
+/// headline, if visible.
 pub(crate) fn underscore_block_end_after(
     parser: &Parser<'_>,
     line: LineView<'_, '_>,
@@ -235,13 +238,15 @@ pub(crate) fn underscore_block_end_after(
     // across it cannot re-enter `ensure`.
     let key = caseless_name_key(name);
     with_cache(parser, |cache| {
-        // No section half-open bound for underscore blocks (u32::MAX).
+        // A headline ends the section, so the end must come before it, as for
+        // a latex environment: Org finds headlines before anything inside them.
+        let bound = *cache.next_heading_after.get(start_id as usize)?;
         keyed_end_after(
             parser,
             &cache.underscore_ends,
             start_id,
             key,
-            u32::MAX,
+            bound,
             limit,
             |end_line| block::underscore_end_name_matches(end_line, name),
         )
@@ -280,8 +285,8 @@ pub(crate) fn latex_env_end_after(
 /// Shared name-keyed end look-up for underscore blocks and latex environments.
 ///
 /// `ends` is a sorted `(caseless name key, line index)` table. Walks the name
-/// bucket after `start_id`, stops past `bound` (the section end for latex;
-/// `u32::MAX` when unbounded) or the active `limit`, and confirms each hit
+/// bucket after `start_id`, stops past `bound` (the next heading, which ends
+/// the section) or the active `limit`, and confirms each hit
 /// with `confirm` on the full end line (a region cap may hide its tokens).
 fn keyed_end_after(
     parser: &Parser<'_>,
@@ -632,16 +637,16 @@ mod tests {
         );
     }
 
-    /// Underscore blocks may end past the next heading; latex environments may
-    /// not.
+    /// Neither an underscore block nor a latex environment ends past the next
+    /// heading.
     #[test]
-    fn underscore_block_end_after_no_heading_bound() {
-        // Heading between begin and end: underscore still finds the end line.
+    fn underscore_block_end_after_stops_at_a_heading() {
+        // Heading between begin and end: the end is past the section.
         let p = make_parser("#+begin_src\nx\n* H\n#+end_src\n");
         let line = p.line().expect("begin");
         assert!(
-            super::underscore_block_end_after(&p, line, "src").is_some(),
-            "underscore keyed_end_after has no heading bound (u32::MAX)"
+            super::underscore_block_end_after(&p, line, "src").is_none(),
+            "an underscore block's end is bounded by the next heading"
         );
 
         // Latex half-open section bound rejects the same shape.

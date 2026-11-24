@@ -1,0 +1,7 @@
+#+BEGIN: clocktable :scope file
+* Heading in a dynamic block
+#+END:
+
+#+begin_verse
+* Heading in a verse
+#+end_verse

@@ -521,15 +521,26 @@ mod tests {
     // --- Lesser non-verse body is opaque (no inner heading) -----------------
 
     #[test]
-    fn non_verse_lesser_body_does_not_parse_inner_headings() {
-        let src = "#+begin_example\n* not a heading\n#+end_example\n";
+    fn a_headline_inside_a_block_ends_it_as_it_ends_the_section() {
+        // Org finds headlines before anything inside them: the block has no
+        // end line in its section, so its opener is a paragraph.
+        for name in ["example", "src", "quote", "verse", "note"] {
+            let src = format!("#+begin_{name}\n* a heading\n#+end_{name}\n");
+            let doc = crate::parse(&src);
+            let kinds: Vec<_> = doc.root().descendants().map(|n| n.kind()).collect();
+            assert!(kinds.contains(&OrgSyntaxKind::HEADING), "{name}: {kinds:?}");
+            assert!(
+                !kinds.iter().any(|k| format!("{k:?}").ends_with("_BLOCK")),
+                "{name}: {kinds:?}"
+            );
+            assert_eq!(doc.write(), src);
+        }
+        // An indented star line is not a headline and stays in the block.
+        let src = "#+begin_example\n * not a heading\n#+end_example\n";
         let (_toks, evs, _) = results_of(src);
         let kinds = node_kinds(&evs);
         assert!(kinds.contains(&OrgSyntaxKind::EXAMPLE_BLOCK));
-        // The * must be plain TEXT inside the block, not turned into HEADING
         assert!(!kinds.contains(&OrgSyntaxKind::HEADING));
-        let text = node_text(&evs, src, OrgSyntaxKind::EXAMPLE_BLOCK).unwrap();
-        assert!(text.contains("* not a heading"));
     }
 
     // --- Greater recurses, including nested blocks --------------------------
@@ -653,7 +664,7 @@ mod tests {
     /// Lesser: the body holds objects but never *elements*.
     #[test]
     fn verse_body_has_no_element_children() {
-        let src = "#+begin_verse\n* not a heading\n- not a list\n| not | a table |\n#+end_verse\n";
+        let src = "#+begin_verse\n * not a heading\n- not a list\n| not | a table |\n#+end_verse\n";
         let root = parse_document_tree(src);
         let verse = only_verse(&root);
         for kind in [
@@ -672,11 +683,11 @@ mod tests {
         assert_eq!(tree_text(&root), src);
     }
 
-    /// A star line is neither a headline nor bold (org opening border rejects
-    /// whitespace after the marker); it stays bare tokens.
+    /// An indented star line is neither a headline nor bold (org opening
+    /// border rejects whitespace after the marker); it stays bare tokens.
     #[test]
     fn verse_star_line_is_not_heading_or_bold() {
-        let src = "#+begin_verse\n* not a heading\n#+end_verse\n";
+        let src = "#+begin_verse\n * not a heading\n#+end_verse\n";
         let root = parse_document_tree(src);
         let verse = only_verse(&root);
         assert!(

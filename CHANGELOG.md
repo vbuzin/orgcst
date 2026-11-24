@@ -75,6 +75,15 @@ a minor release may break the API.
 - `escape_code()` and `unescape_code()` end a line where the parser
   does: at `\r\n`, `\r` or `\n`.
 
+### Fixed
+
+- A block (`#+begin_NAME` or `#+BEGIN:`) no longer ends past the next
+  headline: Org finds headlines before anything inside them, so a block
+  whose end line lies beyond one is unterminated and its opener reads as
+  a paragraph, as Emacs reads it. Checked by the parity corpus
+  (`heading-in-block`, `heading-in-dynamic-block`).
+
+
 ## [0.1.4] - 2026-11-12
 
 ### Fixed

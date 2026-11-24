@@ -1,0 +1,18 @@
+#+begin_quote
+before
+* Heading in a quote
+after
+#+end_quote
+
+#+begin_src emacs-lisp
+(setq x 1)
+* Heading in code
+#+end_src
+
+#+begin_note
+* Heading in a special block
+#+end_note
+
+#+begin_example
+,* escaped is text
+#+end_example
