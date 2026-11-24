@@ -7,6 +7,8 @@ a minor release may break the API.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-24
+
 ### Added
 
 - `Block::block_name()`: the name a block is known by, Org's own for its
@@ -58,14 +60,11 @@ a minor release may break the API.
   Org's `split-string` splits a setting, each `ValueWord` with its text and
   range. The words carry no meaning; what one does is the caller's.
 
-### Deprecated
-
-- `StatisticsCookie::cookie_data()`, to be removed in 0.2.0: what a
-  property means is the caller's. Read `COOKIE_DATA` from the host task's
-  property drawer instead.
-
 ### Removed
 
+- `StatisticsCookie::cookie_data()` and `CookieData`, deprecated in 0.1.5:
+  what a property means is the caller's. Read `COOKIE_DATA` from the host
+  task's property drawer instead.
 - `quote_lesser_body()` and `unquote_lesser_body()`: the same rule as
   `escape_code()` and `unescape_code()`, which are now the one place it
   is written.
@@ -176,7 +175,8 @@ First public release.
 - Typed `Operation`s that compile to an `EditSet`.
 - `PortableDocument` for moving a snapshot across threads.
 
-[Unreleased]: https://github.com/vbuzin/orgcst/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/vbuzin/orgcst/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/vbuzin/orgcst/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/vbuzin/orgcst/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/vbuzin/orgcst/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/vbuzin/orgcst/compare/v0.1.1...v0.1.2

@@ -42,7 +42,7 @@ them.
 
 ```toml
 [dependencies]
-orgcst = "0.1"
+orgcst = "0.2"
 ```
 
 Parse, then query through typed views:
