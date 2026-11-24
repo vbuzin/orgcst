@@ -186,18 +186,23 @@ pub(crate) fn block_kind(name: &str, dynamic: bool) -> OrgSyntaxKind {
     if dynamic {
         return OrgSyntaxKind::DYNAMIC_BLOCK;
     }
-
-    match name {
-        n if n.eq_ignore_ascii_case("src") => OrgSyntaxKind::SRC_BLOCK,
-        n if n.eq_ignore_ascii_case("example") => OrgSyntaxKind::EXAMPLE_BLOCK,
-        n if n.eq_ignore_ascii_case("export") => OrgSyntaxKind::EXPORT_BLOCK,
-        n if n.eq_ignore_ascii_case("comment") => OrgSyntaxKind::COMMENT_BLOCK,
-        n if n.eq_ignore_ascii_case("verse") => OrgSyntaxKind::VERSE_BLOCK,
-        n if n.eq_ignore_ascii_case("quote") => OrgSyntaxKind::QUOTE_BLOCK,
-        n if n.eq_ignore_ascii_case("center") => OrgSyntaxKind::CENTER_BLOCK,
-        _ => OrgSyntaxKind::SPECIAL_BLOCK,
-    }
+    ORG_BLOCK_NAMES
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map_or(OrgSyntaxKind::SPECIAL_BLOCK, |&(_, kind)| kind)
 }
+
+/// Org's own block names and the kinds they make; any other name after
+/// `#+begin_` is a special block.
+pub(crate) const ORG_BLOCK_NAMES: &[(&str, OrgSyntaxKind)] = &[
+    ("src", OrgSyntaxKind::SRC_BLOCK),
+    ("example", OrgSyntaxKind::EXAMPLE_BLOCK),
+    ("export", OrgSyntaxKind::EXPORT_BLOCK),
+    ("comment", OrgSyntaxKind::COMMENT_BLOCK),
+    ("verse", OrgSyntaxKind::VERSE_BLOCK),
+    ("quote", OrgSyntaxKind::QUOTE_BLOCK),
+    ("center", OrgSyntaxKind::CENTER_BLOCK),
+];
 
 /// `#+` (begin|end) (`_`|`:`) at line content: `(is_begin, dynamic)`.
 fn marker_shape(line: LineView) -> Option<(bool, bool)> {

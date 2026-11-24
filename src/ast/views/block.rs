@@ -21,7 +21,7 @@ use crate::ast::layout::{
 use crate::ast::support::element_run_range;
 use crate::ast::{AstNode, Container, ElementView, HasObjects, HasParts, PartSpan, PresentPart};
 use crate::parser::grammar::drive::frame::BodyMode;
-use crate::parser::grammar::forms::block::block_body_mode;
+use crate::parser::grammar::forms::block::{ORG_BLOCK_NAMES, block_body_mode};
 use crate::syntax::{OrgSyntaxKind, SyntaxNode};
 
 crate::ast_node!(
@@ -129,6 +129,19 @@ impl Block {
             OrgSyntaxKind::DYNAMIC_BLOCK => BlockKind::Dynamic,
             other => unreachable!("grammar: Block only wraps *_BLOCK kinds, got {other:?}"),
         }
+    }
+
+    /// The name the block is known by: Org's own name for its kind
+    /// (`src`, `example`, `export`, `comment`, `verse`, `quote`, `center`),
+    /// in lower case whatever case it is written in, or the name written
+    /// after `#+begin_` or `#+BEGIN:` for a special or dynamic block.
+    #[must_use]
+    pub fn block_name(&self) -> String {
+        let kind = self.syntax().kind();
+        ORG_BLOCK_NAMES
+            .iter()
+            .find(|&&(_, k)| k == kind)
+            .map_or_else(|| self.name().unwrap_or_default(), |(n, _)| (*n).to_owned())
     }
 
     /// The body, typed by what it holds.
@@ -1128,5 +1141,30 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod block_name_tests {
+    use crate::ast::{AstNode, Block};
+
+    fn name(src: &str) -> String {
+        crate::parse(src)
+            .root()
+            .descendants()
+            .find_map(Block::cast)
+            .expect("a block")
+            .block_name()
+    }
+
+    #[test]
+    fn org_names_and_written_names() {
+        assert_eq!(name("#+BEGIN_QUOTE\n#+END_QUOTE\n"), "quote");
+        assert_eq!(name("#+begin_src rust\n#+end_src\n"), "src");
+        assert_eq!(name("#+begin_Note\n#+end_Note\n"), "Note");
+        assert_eq!(
+            name("#+BEGIN: clocktable :scope file\n#+END:\n"),
+            "clocktable"
+        );
     }
 }

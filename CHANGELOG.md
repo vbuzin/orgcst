@@ -9,6 +9,9 @@ a minor release may break the API.
 
 ### Added
 
+- `Block::block_name()`: the name a block is known by, Org's own for its
+  seven kinds in lower case, else the name written for a special or
+  dynamic block.
 - `Document::element_lines()` and `ElementInput`: the lines a block, a
   drawer, a plain list, a table (`TableRowInput`) or a horizontal rule is
   written as, by Org's names, checked by reading them back, for a caller
