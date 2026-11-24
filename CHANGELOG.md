@@ -7,6 +7,12 @@ a minor release may break the API.
 
 ## [Unreleased]
 
+### Added
+
+- `Operation::ExtendElement`: the element right after a block or a drawer
+  made part of it, its end line moved past that element, code escaped as
+  it comes into a src, example or export block.
+
 ## [0.2.0] - 2026-11-24
 
 ### Added

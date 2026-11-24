@@ -470,6 +470,68 @@ pub(super) fn compile_wrap_in_element(
     Ok(set)
 }
 
+pub(super) fn compile_extend_element(
+    doc: &Document,
+    target: NodeRef,
+) -> Result<EditSet, OperationError> {
+    let node = resolve_named(doc, target)?;
+    let next = Element::cast(node.clone())
+        .and_then(|e| e.next_element())
+        .ok_or(OperationError::InvalidOffset)?;
+    let (_, body, close) = element_lines(doc, &node);
+    // The end line moves past the next element; blank lines after that
+    // element stay after the block.
+    let start = next.full_range().start();
+    let end = content_end(doc, &next);
+    let moved = doc.slice(TextRange::new(close.start(), end));
+    let taken = &moved[usize::from(start - close.start())..];
+    let end_line = doc.slice(close);
+    let code = holds_code(node.kind());
+    let taken_text = if code {
+        escape_code(taken)
+    } else {
+        Cow::Borrowed(taken)
+    };
+    let gap = &moved[usize::from(close.len())..usize::from(start - close.start())];
+    let (taken_text, end_line) = if taken_text.ends_with('\n') || end_line.ends_with('\n') {
+        (
+            ended(&taken_text).into_owned(),
+            end_line.trim_end_matches(['\n', '\r']).to_owned() + "\n",
+        )
+    } else {
+        (taken_text.into_owned(), end_line.to_owned())
+    };
+    let set = EditSet::single(
+        doc.source(),
+        TextRange::new(close.start(), end),
+        format!("{gap}{taken_text}{end_line}"),
+    )?;
+    let next_doc = doc.apply(&set);
+    let refused = OperationError::NotAllowedHere {
+        kind: node.kind(),
+        scope: node.parent().map_or(OrgSyntaxKind::DOCUMENT, |p| p.kind()),
+    };
+    let grown = next_doc
+        .root()
+        .descendants()
+        .find(|n| n.kind() == node.kind() && n.text_range().start() == node.text_range().start())
+        .ok_or_else(|| refused.clone())?;
+    let old_body = match Block::cast(node.clone()) {
+        Some(b) => body_text(doc, &b),
+        None => doc.slice(body).to_owned(),
+    };
+    let new_body = match Block::cast(grown.clone()) {
+        Some(b) => body_text(&next_doc, &b),
+        None => Drawer::cast(grown.clone())
+            .map_or_else(String::new, |d| next_doc.slice(d.body_range()).to_owned()),
+    };
+    let want = format!("{old_body}{gap}{}", ended(taken));
+    if new_body != want || (!code && holds_heading(doc, taken)) {
+        return Err(refused);
+    }
+    Ok(set)
+}
+
 pub(super) fn compile_unwrap_element(
     doc: &Document,
     target: NodeRef,
@@ -1034,6 +1096,55 @@ mod tests {
     fn rename_refuses_code_that_would_become_a_heading() {
         assert!(matches!(
             rename("#+begin_example\n,* x\n#+end_example\n", "quote"),
+            Err(OperationError::NotAllowedHere { .. })
+        ));
+    }
+
+    fn extend(src: &str) -> Result<String, OperationError> {
+        let doc = parse(src);
+        let node = doc
+            .root()
+            .descendants()
+            .find(|n| NAMED_KINDS.contains(&n.kind()) || n.kind() == OrgSyntaxKind::DYNAMIC_BLOCK)
+            .expect("a block or drawer");
+        run(
+            src,
+            &Operation::ExtendElement {
+                target: NodeRef::at(node.text_range().start(), node.kind()),
+            },
+        )
+    }
+
+    #[test]
+    fn extends_a_block_over_the_next_element() {
+        assert_eq!(
+            extend("#+begin_quote\nOne\n#+end_quote\nAfter.\n\nMore.\n").unwrap(),
+            "#+begin_quote\nOne\nAfter.\n#+end_quote\n\nMore.\n"
+        );
+        // Blank lines between stay inside, between the two.
+        assert_eq!(
+            extend("#+begin_quote\nOne\n#+end_quote\n\nAfter.\n").unwrap(),
+            "#+begin_quote\nOne\n\nAfter.\n#+end_quote\n"
+        );
+        assert_eq!(
+            extend(":NOTES:\nOne\n:END:\nAfter.\n").unwrap(),
+            ":NOTES:\nOne\nAfter.\n:END:\n"
+        );
+        // Code is escaped as it comes in.
+        assert_eq!(
+            extend("#+begin_example\nx\n#+end_example\n#+TITLE: t\n").unwrap(),
+            "#+begin_example\nx\n,#+TITLE: t\n#+end_example\n"
+        );
+    }
+
+    #[test]
+    fn extend_refuses_with_nothing_after_or_a_drawer_into_a_drawer() {
+        assert_eq!(
+            extend("#+begin_quote\nOne\n#+end_quote\n"),
+            Err(OperationError::InvalidOffset)
+        );
+        assert!(matches!(
+            extend(":A:\nx\n:END:\n:B:\ny\n:END:\n"),
             Err(OperationError::NotAllowedHere { .. })
         ));
     }

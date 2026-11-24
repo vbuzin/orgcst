@@ -430,6 +430,20 @@ pub enum Operation {
         /// The block or drawer, its contents empty.
         element: ElementInput,
     },
+    /// Make the element right after a block or a drawer part of it: the end
+    /// line moves past that element, and the blank lines after it stay
+    /// after the block. In a src, example or export block the element's text
+    /// is escaped as code.
+    ///
+    /// [`OperationError::InvalidOffset`] when nothing follows it in its
+    /// container; [`OperationError::NotAllowedHere`] when the result would
+    /// not read back as the block holding its contents and that element (a
+    /// heading, a drawer in a drawer); a dynamic block is
+    /// [`OperationError::WrongKind`].
+    ExtendElement {
+        /// The block or drawer.
+        target: NodeRef,
+    },
     /// Remove a block's or a drawer's begin and end lines and keep its
     /// contents where it was: code with its escaping undone, Org text as
     /// written. Affiliated keywords before it stay, and so does the blank
@@ -754,6 +768,7 @@ pub fn compile(doc: &Document, op: &Operation) -> Result<EditSet, OperationError
             element::compile_wrap_in_element(doc, *range, element)
         }
         Operation::UnwrapElement { target } => element::compile_unwrap_element(doc, *target),
+        Operation::ExtendElement { target } => element::compile_extend_element(doc, *target),
         Operation::SetElementName { target, name } => {
             element::compile_set_element_name(doc, *target, name)
         }
@@ -1175,6 +1190,15 @@ pub(crate) fn assert_envelope(doc: &Document, op: &Operation, set: &EditSet) {
         Operation::UnwrapElement { target } | Operation::SetElementName { target, .. } => {
             let node = target.resolve(doc).expect("live element");
             assert_edits_within(set, node.text_range());
+        }
+        Operation::ExtendElement { target } => {
+            let node = target.resolve(doc).expect("live element");
+            let after = crate::ast::Element::cast(node.clone())
+                .and_then(|e| crate::ast::ElementView::next_element(&e))
+                .map_or(node.text_range().end(), |e| {
+                    crate::ast::ElementView::full_range(&e).end()
+                });
+            assert_edits_within(set, TextRange::new(node.text_range().start(), after));
         }
         Operation::ReplaceText { range, .. } => {
             assert_edits_within(set, *range);
