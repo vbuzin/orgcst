@@ -641,6 +641,275 @@ pub(super) fn compile_set_element_name(
     Ok(set)
 }
 
+/// The kinds of block whose body is code.
+const CODE_KINDS: &[OrgSyntaxKind] = &[
+    OrgSyntaxKind::SRC_BLOCK,
+    OrgSyntaxKind::EXAMPLE_BLOCK,
+    OrgSyntaxKind::EXPORT_BLOCK,
+];
+
+pub(super) fn compile_replace_code(
+    doc: &Document,
+    target: NodeRef,
+    range: TextRange,
+    replacement: &str,
+) -> Result<EditSet, OperationError> {
+    let node = target.resolve(doc).ok_or(OperationError::StaleTarget)?;
+    if !CODE_KINDS.contains(&node.kind()) {
+        return Err(OperationError::WrongKind {
+            expected: CODE_KINDS,
+            actual: node.kind(),
+        });
+    }
+    let block = Block::cast(node.clone()).expect("grammar: code kinds are blocks");
+    let interior = block.interior_range();
+    if !interior.contains_range(range) {
+        return Err(OperationError::InvalidOffset);
+    }
+    let src = doc.source();
+    // The lines the edit touches: from the start of the first to the end of
+    // the line `range` ends on, its line break included.
+    let first = usize::from(interior.start()).max(
+        src[..usize::from(range.start())]
+            .rfind('\n')
+            .map_or(0, |i| i + 1),
+    );
+    let last =
+        usize::from(line_end(src, usize::from(range.end()))).min(usize::from(interior.end()));
+    let old = &src[first..last];
+    let joined = format!(
+        "{}{}{}",
+        &src[first..usize::from(range.start())],
+        replacement,
+        &src[usize::from(range.end())..last]
+    );
+    let new = crate::ast::escape_bare_code(&joined);
+    if last == usize::from(interior.end()) && !new.is_empty() && !new.ends_with(['\n', '\r']) {
+        return Err(OperationError::NotAllowedHere {
+            kind: node.kind(),
+            scope: node.parent().map_or(OrgSyntaxKind::DOCUMENT, |p| p.kind()),
+        });
+    }
+    if new == old {
+        return Ok(super::empty_edit_set(src));
+    }
+    // One edit over what differs, so offsets outside it map through.
+    let head = common_prefix(old, &new);
+    let tail = common_suffix(&old[head..], &new[head..]);
+    let edit = Edit {
+        range: TextRange::new(
+            TextSize::from((first + head) as u32),
+            TextSize::from((last - tail) as u32),
+        ),
+        replacement: new[head..new.len() - tail].to_owned(),
+    };
+    let set = EditSet::new(src, vec![edit])?;
+    let delta =
+        i64::try_from(new.len()).unwrap_or(i64::MAX) - i64::try_from(old.len()).unwrap_or(i64::MAX);
+    reads_back_as_block(doc, &node, &set, delta)?;
+    Ok(set)
+}
+
+pub(super) fn compile_set_block_data(
+    doc: &Document,
+    target: NodeRef,
+    data: &str,
+) -> Result<EditSet, OperationError> {
+    let node = resolve_named(doc, target)?;
+    if node.kind() == OrgSyntaxKind::DRAWER || node.kind() == OrgSyntaxKind::DYNAMIC_BLOCK {
+        return Err(OperationError::WrongKind {
+            expected: NAMED_KINDS,
+            actual: node.kind(),
+        });
+    }
+    if data.contains(['\n', '\r']) {
+        return Err(OperationError::InvalidText);
+    }
+    let (name, _) = block_name_ranges(doc, &node);
+    let src = doc.source();
+    let line = &src[usize::from(name.end())..];
+    let end = name.end() + TextSize::from(line.find(['\n', '\r']).unwrap_or(line.len()) as u32);
+    let data = data.trim();
+    let written = if data.is_empty() {
+        String::new()
+    } else {
+        format!(" {data}")
+    };
+    let range = TextRange::new(name.end(), end);
+    if doc.slice(range) == written {
+        return Ok(super::empty_edit_set(src));
+    }
+    let set = EditSet::new(
+        src,
+        vec![Edit {
+            range,
+            replacement: written.clone(),
+        }],
+    )?;
+    let delta =
+        i64::try_from(written.len()).unwrap_or(i64::MAX) - i64::from(u32::from(range.len()));
+    let next = reads_back_as_block(doc, &node, &set, delta)?;
+    let start = node.text_range().start();
+    let reread = next
+        .root()
+        .descendants()
+        .filter_map(Block::cast)
+        .find(|b| b.syntax().text_range().start() == start);
+    let begin_rest = |d: &Document, b: &Block| {
+        let (n, _) = block_name_ranges(d, b.syntax());
+        let l = &d.source()[usize::from(n.end())..];
+        l[..l.find(['\n', '\r']).unwrap_or(l.len())]
+            .trim()
+            .to_owned()
+    };
+    match reread {
+        Some(b) if begin_rest(&next, &b) == data => Ok(set),
+        _ => Err(OperationError::NotAllowedHere {
+            kind: node.kind(),
+            scope: node.parent().map_or(OrgSyntaxKind::DOCUMENT, |p| p.kind()),
+        }),
+    }
+}
+
+pub(super) fn compile_set_attribute(
+    doc: &Document,
+    target: NodeRef,
+    backend: &str,
+    key: &str,
+    value: Option<&str>,
+) -> Result<EditSet, OperationError> {
+    let node = target.resolve(doc).ok_or(OperationError::StaleTarget)?;
+    let Some(element) = Element::cast(node.clone()) else {
+        return Err(OperationError::WrongKind {
+            expected: &[],
+            actual: node.kind(),
+        });
+    };
+    if backend.is_empty()
+        || !backend
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(OperationError::InvalidKeyword);
+    }
+    let src = doc.source();
+    let line = element.affiliated().and_then(|run| run.attr(backend));
+    let edit = if let Some(kw) = line {
+        let content = kw.value().content_range();
+        let old = doc.slice(content);
+        let new = crate::writer::set_argument(old, key, value)
+            .map_err(|_| OperationError::InvalidText)?;
+        if new == old {
+            return Ok(super::empty_edit_set(src));
+        }
+        if new.trim().is_empty() {
+            // The whole line goes, its line break with it.
+            let start = kw.syntax().text_range().start();
+            Edit {
+                range: TextRange::new(start, line_end(src, usize::from(content.end()))),
+                replacement: String::new(),
+            }
+        } else {
+            Edit {
+                range: content,
+                replacement: new,
+            }
+        }
+    } else {
+        let Some(value) = value else {
+            return Ok(super::empty_edit_set(src));
+        };
+        let arguments = crate::writer::set_argument("", key, Some(value))
+            .map_err(|_| OperationError::InvalidText)?;
+        let at = element.syntax().text_range().start();
+        Edit {
+            range: TextRange::empty(at),
+            replacement: format!("{}#+ATTR_{backend}: {arguments}\n", line_indent(doc, at)),
+        }
+    };
+    let set = EditSet::new(src, vec![edit])?;
+    let next = doc.apply(&set);
+    let kind = node.kind();
+    let moved = set.map_offset(node.text_range().start(), crate::Bias::Right);
+    let written = next
+        .root()
+        .descendants()
+        .filter_map(Element::cast)
+        .find(|e| e.syntax().kind() == kind && e.syntax().text_range().start() == moved);
+    let holds = |e: &Element| {
+        let args = e
+            .affiliated()
+            .and_then(|run| run.attr(backend))
+            .map_or_else(String::new, |kw| {
+                next.slice(kw.value().content_range()).to_owned()
+            });
+        let found = crate::settings::babel_arguments(&args)
+            .into_iter()
+            .rev()
+            .find(|a| &args[a.key.clone()] == key)
+            .map(|a| a.value);
+        found.as_deref() == value
+    };
+    match written {
+        Some(e) if holds(&e) => Ok(set),
+        _ => Err(OperationError::NotAllowedHere {
+            kind,
+            scope: node.parent().map_or(OrgSyntaxKind::DOCUMENT, |p| p.kind()),
+        }),
+    }
+}
+
+/// The document after `set`, when the block `node` still reads back there
+/// as a block of its kind, from the same start, `delta` bytes longer.
+fn reads_back_as_block(
+    doc: &Document,
+    node: &SyntaxNode,
+    set: &EditSet,
+    delta: i64,
+) -> Result<Document, OperationError> {
+    let next = doc.apply(set);
+    let range = node.text_range();
+    let end = i64::from(u32::from(range.end())) + delta;
+    let same = next.root().descendants().any(|n| {
+        n.kind() == node.kind()
+            && n.text_range().start() == range.start()
+            && i64::from(u32::from(n.text_range().end())) == end
+    });
+    if same {
+        Ok(next)
+    } else {
+        Err(OperationError::NotAllowedHere {
+            kind: node.kind(),
+            scope: node.parent().map_or(OrgSyntaxKind::DOCUMENT, |p| p.kind()),
+        })
+    }
+}
+
+/// The length of the longest common prefix of `a` and `b`, at a character
+/// boundary of both.
+fn common_prefix(a: &str, b: &str) -> usize {
+    let mut n = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
+    while !a.is_char_boundary(n) || !b.is_char_boundary(n) {
+        n -= 1;
+    }
+    n
+}
+
+/// The length of the longest common suffix of `a` and `b`, at a character
+/// boundary of both.
+fn common_suffix(a: &str, b: &str) -> usize {
+    let mut n = a
+        .bytes()
+        .rev()
+        .zip(b.bytes().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    while !a.is_char_boundary(a.len() - n) || !b.is_char_boundary(b.len() - n) {
+        n -= 1;
+    }
+    n
+}
+
 /// Whether the text a block now holds keeps the structure it had in
 /// `range` of `doc`: the same elements and objects, but for the paragraphs
 /// a verse block's lines do not make. A block that holds code keeps
@@ -1247,5 +1516,149 @@ mod tests {
             run("- a\n", &wrap((0, 4), block("example", "", ""))).unwrap(),
             "#+begin_example\n- a\n#+end_example\n"
         );
+    }
+
+    fn first_block(doc: &Document) -> NodeRef {
+        let node = doc
+            .root()
+            .descendants()
+            .find(|n| Block::can_cast(n.kind()))
+            .expect("a block");
+        NodeRef::at(node.text_range().start(), node.kind())
+    }
+
+    fn code(src: &str, at: (u32, u32), text: &str) -> Result<String, OperationError> {
+        let doc = parse(src);
+        let op = Operation::ReplaceCode {
+            target: first_block(&doc),
+            range: TextRange::new(TextSize::from(at.0), TextSize::from(at.1)),
+            replacement: text.to_owned(),
+        };
+        run(src, &op)
+    }
+
+    #[test]
+    fn code_typed_at_a_line_start_is_escaped() {
+        let src = "#+begin_src sh\necho\n#+end_src\n";
+        assert_eq!(
+            code(src, (15, 15), "* x\n").unwrap(),
+            "#+begin_src sh\n,* x\necho\n#+end_src\n"
+        );
+        assert_eq!(
+            code(src, (15, 15), "#").unwrap(),
+            "#+begin_src sh\n#echo\n#+end_src\n"
+        );
+        // A `+` after a `#` at a line's start makes a keyword line.
+        let src = "#+begin_src sh\n#\n#+end_src\n";
+        assert_eq!(
+            code(src, (16, 16), "+end_src").unwrap(),
+            "#+begin_src sh\n,#+end_src\n#+end_src\n"
+        );
+    }
+
+    #[test]
+    fn code_left_at_a_line_start_by_a_deletion_is_escaped() {
+        let src = "#+begin_src c\na*p\n#+end_src\n";
+        assert_eq!(
+            code(src, (14, 15), "").unwrap(),
+            "#+begin_src c\n,*p\n#+end_src\n"
+        );
+    }
+
+    #[test]
+    fn code_keeps_escapes_as_written_and_pastes_lines() {
+        let src = "#+begin_example\n,* kept\n\n#+end_example\n";
+        assert_eq!(
+            code(src, (24, 24), "#+a\n  * b").unwrap(),
+            "#+begin_example\n,* kept\n,#+a\n  ,* b\n#+end_example\n"
+        );
+    }
+
+    #[test]
+    fn code_refuses_outside_the_body_and_a_joined_end_line() {
+        let src = "#+begin_src sh\necho\n#+end_src\n";
+        assert_eq!(code(src, (0, 1), "x"), Err(OperationError::InvalidOffset));
+        assert!(matches!(
+            code(src, (19, 20), ""),
+            Err(OperationError::NotAllowedHere { .. })
+        ));
+        let quote = parse("#+begin_quote\na\n#+end_quote\n");
+        let op = Operation::ReplaceCode {
+            target: first_block(&quote),
+            range: TextRange::empty(TextSize::from(14)),
+            replacement: "x".into(),
+        };
+        assert!(matches!(
+            crate::compile(&quote, &op),
+            Err(OperationError::WrongKind { .. })
+        ));
+    }
+
+    fn data(src: &str, data: &str) -> Result<String, OperationError> {
+        let doc = parse(src);
+        let op = Operation::SetBlockData {
+            target: first_block(&doc),
+            data: data.to_owned(),
+        };
+        run(src, &op)
+    }
+
+    #[test]
+    fn sets_a_blocks_data() {
+        let src = "#+begin_src python :results output\nx\n#+end_src\n";
+        assert_eq!(
+            data(src, "rust :results output").unwrap(),
+            "#+begin_src rust :results output\nx\n#+end_src\n"
+        );
+        assert_eq!(data(src, "").unwrap(), "#+begin_src\nx\n#+end_src\n");
+        assert_eq!(
+            data("#+BEGIN_SRC\nx\n#+END_SRC\n", "sh").unwrap(),
+            "#+BEGIN_SRC sh\nx\n#+END_SRC\n"
+        );
+        assert_eq!(data(src, "a\nb"), Err(OperationError::InvalidText));
+    }
+
+    fn attr(src: &str, key: &str, value: Option<&str>) -> Result<String, OperationError> {
+        let doc = parse(src);
+        let op = Operation::SetAttribute {
+            target: first_block(&doc),
+            backend: "html".into(),
+            key: key.into(),
+            value: value.map(str::to_owned),
+        };
+        run(src, &op)
+    }
+
+    #[test]
+    fn sets_an_attribute_on_a_new_line_after_the_others() {
+        let src = "#+NAME: x\n#+begin_example\na\n#+end_example\n";
+        assert_eq!(
+            attr(src, "wrap", Some("yes")).unwrap(),
+            "#+NAME: x\n#+ATTR_html: :wrap yes\n#+begin_example\na\n#+end_example\n"
+        );
+        assert_eq!(
+            attr("  #+begin_src sh\n  a\n  #+end_src\n", "wrap", Some("no")).unwrap(),
+            "  #+ATTR_html: :wrap no\n  #+begin_src sh\n  a\n  #+end_src\n"
+        );
+    }
+
+    #[test]
+    fn changes_and_removes_an_attribute() {
+        let src = "#+ATTR_html: :wrap yes\n#+begin_example\na\n#+end_example\n";
+        assert_eq!(
+            attr(src, "wrap", Some("no")).unwrap(),
+            "#+ATTR_html: :wrap no\n#+begin_example\na\n#+end_example\n"
+        );
+        assert_eq!(
+            attr(src, "wrap", None).unwrap(),
+            "#+begin_example\na\n#+end_example\n"
+        );
+        let two = "#+ATTR_html: :a 1 :wrap yes\n#+begin_example\na\n#+end_example\n";
+        assert_eq!(
+            attr(two, "wrap", None).unwrap(),
+            "#+ATTR_html: :a 1\n#+begin_example\na\n#+end_example\n"
+        );
+        let none = "#+begin_example\na\n#+end_example\n";
+        assert_eq!(attr(none, "wrap", None).unwrap(), none);
     }
 }

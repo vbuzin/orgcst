@@ -469,6 +469,62 @@ pub enum Operation {
         name: String,
     },
 
+    /// Replace `range`, inside a src, example or export block's body, with
+    /// `replacement` as code: every line the edit leaves whose first
+    /// characters after spaces and tabs are `*` or `#+` gains a comma, as
+    /// Org escapes code ([`escape_code`](crate::escape_code)), so the block
+    /// still holds it. A line already escaped is kept as written, and only
+    /// the lines the edit touches are looked at.
+    ///
+    /// [`OperationError::WrongKind`] when `target` is another kind of
+    /// block; [`OperationError::InvalidOffset`] when `range` is not inside
+    /// the body; [`OperationError::NotAllowedHere`] when the result would
+    /// not read back as the block (its last line joined to its end line).
+    ReplaceCode {
+        /// The block.
+        target: NodeRef,
+        /// Bytes to replace, in snapshot coordinates.
+        range: TextRange,
+        /// Code written in their place, unescaped.
+        replacement: String,
+    },
+    /// Replace what a block's begin line holds after its name: a src
+    /// block's language, switches and header arguments, an export block's
+    /// backend, a special block's parameters. An empty `data` leaves the
+    /// name alone on the line.
+    ///
+    /// [`OperationError::WrongKind`] for a dynamic block or another node;
+    /// [`OperationError::InvalidText`] for a line break;
+    /// [`OperationError::NotAllowedHere`] when the begin line would not read
+    /// back as the same block with that data.
+    SetBlockData {
+        /// The block.
+        target: NodeRef,
+        /// The rest of the begin line, as written.
+        data: String,
+    },
+    /// Set, change or remove the argument `key` of an element's
+    /// `#+ATTR_<BACKEND>:` line, in the `:key value` notation
+    /// ([`set_argument`](crate::set_argument)). The last such line the element
+    /// has is changed; with none, a new one is written as the element's last
+    /// affiliated keyword. A line left with no argument is removed.
+    ///
+    /// [`OperationError::WrongKind`] when `target` is not an element that
+    /// takes affiliated keywords; [`OperationError::InvalidKeyword`] for a
+    /// backend that is empty or holds anything but letters, digits, `-` and
+    /// `_`; [`OperationError::InvalidText`] for a key or a value the
+    /// notation cannot hold.
+    SetAttribute {
+        /// The element.
+        target: NodeRef,
+        /// The backend after `ATTR_`, as written (`html`, `LATEX`).
+        backend: String,
+        /// The argument's key, without its colon.
+        key: String,
+        /// The value, or `None` to remove the argument.
+        value: Option<String>,
+    },
+
     /// Replace `range` with `replacement`, for typing, pasting or any change
     /// the caller computes itself. Identical bytes compile to an empty set.
     ReplaceText {
@@ -779,6 +835,20 @@ pub fn compile(doc: &Document, op: &Operation) -> Result<EditSet, OperationError
         Operation::ReplaceText { range, replacement } => {
             text::compile_replace_text(doc, *range, replacement)
         }
+        Operation::ReplaceCode {
+            target,
+            range,
+            replacement,
+        } => element::compile_replace_code(doc, *target, *range, replacement),
+        Operation::SetBlockData { target, data } => {
+            element::compile_set_block_data(doc, *target, data)
+        }
+        Operation::SetAttribute {
+            target,
+            backend,
+            key,
+            value,
+        } => element::compile_set_attribute(doc, *target, backend, key, value.as_deref()),
         Operation::SplitHeading { target, at } => {
             restructure::compile_split_heading(doc, *target, *at)
         }
@@ -1203,6 +1273,15 @@ pub(crate) fn assert_envelope(doc: &Document, op: &Operation, set: &EditSet) {
                     crate::ast::ElementView::full_range(&e).end()
                 });
             assert_edits_within(set, TextRange::new(node.text_range().start(), after));
+        }
+        Operation::ReplaceCode { target, .. } | Operation::SetBlockData { target, .. } => {
+            let node = target.resolve(doc).expect("live block");
+            assert_edits_within(set, node.text_range());
+        }
+        Operation::SetAttribute { target, .. } => {
+            let node = target.resolve(doc).expect("live element");
+            let element = crate::ast::Element::cast(node).expect("an element");
+            assert_edits_within(set, crate::ast::ElementView::full_range(&element));
         }
         Operation::ReplaceText { range, .. } => {
             assert_edits_within(set, *range);

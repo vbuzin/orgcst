@@ -725,6 +725,48 @@ pub(crate) fn parse_link_abbrev_value(value: &str) -> Option<(String, String)> {
 
 /// Babel `:key val` scan over a value string. Malformed quotes skip the rest.
 pub(crate) fn parse_babel_header_args(value: &str, base: TextSize) -> Vec<RawProperty> {
+    babel_arguments(value)
+        .into_iter()
+        .map(|a| {
+            let at = |r: std::ops::Range<usize>| {
+                TextRange::at(
+                    base + TextSize::from(r.start as u32),
+                    TextSize::from((r.end - r.start) as u32),
+                )
+            };
+            let key = value[a.key.clone()].to_string();
+            let range = match a.raw_value {
+                Some(r) if !a.value.is_empty() => at(r),
+                _ => at(a.key),
+            };
+            RawProperty {
+                key,
+                value: a.value,
+                range,
+            }
+        })
+        .collect()
+}
+
+/// One `:key value` argument of a list Babel and `ATTR_` lines write, by
+/// byte offsets into the list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BabelArgument {
+    /// From the colon to the end of the value, or of the key when there is
+    /// no value.
+    pub extent: std::ops::Range<usize>,
+    /// The key after the colon.
+    pub key: std::ops::Range<usize>,
+    /// The value as written, quotes included, when there is one.
+    pub raw_value: Option<std::ops::Range<usize>>,
+    /// The value, its quotes and backslashes undone.
+    pub value: String,
+}
+
+/// The arguments of a `:key value` list, in order. A key is the run after a
+/// colon that starts the list or follows whitespace; a value runs to the
+/// next such colon, or is one quoted string. Malformed quotes end the scan.
+pub(crate) fn babel_arguments(value: &str) -> Vec<BabelArgument> {
     let bytes = value.as_bytes();
     let mut i = 0;
     while i < bytes.len() && bytes[i].is_ascii_whitespace() {
@@ -743,19 +785,16 @@ pub(crate) fn parse_babel_header_args(value: &str, base: TextSize) -> Vec<RawPro
         if i == key_start {
             continue;
         }
-        let key = value[key_start..i].to_string();
-        let key_range = TextRange::at(
-            base + TextSize::from(key_start as u32),
-            TextSize::from(key.len() as u32),
-        );
+        let key = key_start..i;
         while i < bytes.len() && bytes[i].is_ascii_whitespace() {
             i += 1;
         }
         if i >= bytes.len() {
-            out.push(RawProperty {
+            out.push(BabelArgument {
+                extent: colon..key.end,
                 key,
+                raw_value: None,
                 value: String::new(),
-                range: key_range,
             });
             break;
         }
@@ -763,19 +802,11 @@ pub(crate) fn parse_babel_header_args(value: &str, base: TextSize) -> Vec<RawPro
             match read_babel_quoted(value, i) {
                 None => break,
                 Some((decoded, next)) => {
-                    let raw_len = next - i;
-                    let range = if decoded.is_empty() {
-                        key_range
-                    } else {
-                        TextRange::at(
-                            base + TextSize::from(i as u32),
-                            TextSize::from(raw_len as u32),
-                        )
-                    };
-                    out.push(RawProperty {
+                    out.push(BabelArgument {
+                        extent: colon..next,
                         key,
+                        raw_value: Some(i..next),
                         value: decoded,
-                        range,
                     });
                     i = next;
                 }
@@ -783,19 +814,17 @@ pub(crate) fn parse_babel_header_args(value: &str, base: TextSize) -> Vec<RawPro
         } else {
             let val_start = i;
             let val_end = unquoted_babel_value_end(bytes, i);
-            let val = value[val_start..val_end].to_string();
-            let range = if val.is_empty() {
-                key_range
+            let raw = val_start..val_end;
+            let end = if val_end > val_start {
+                val_end
             } else {
-                TextRange::at(
-                    base + TextSize::from(val_start as u32),
-                    TextSize::from(val.len() as u32),
-                )
+                key.end
             };
-            out.push(RawProperty {
+            out.push(BabelArgument {
+                extent: colon..end,
                 key,
-                value: val,
-                range,
+                raw_value: (val_end > val_start).then_some(raw),
+                value: value[val_start..val_end].to_string(),
             });
             i = val_end;
         }

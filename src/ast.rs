@@ -45,7 +45,6 @@ pub use document::{
     TagGroupKind,
 };
 pub use portable::PortableDocument;
-pub(crate) use views::holds_code;
 pub use views::{
     AffiliatedKeywords, BabelCall, BabelCallPart, Block, BlockBody, BlockKind, BlockPart, Bullet,
     CellAddr, CellFormula, CellFormulaKind, CheckboxState, Citation, CitationPart,
@@ -66,6 +65,7 @@ pub use views::{
     escape_link_path, file_link_path, normalize_angle_link_ws, normalize_bracket_link_ws,
     unescape_code, unescape_link_path,
 };
+pub(crate) use views::{escape_bare_code, holds_code};
 
 use crate::syntax::{OrgSyntaxKind, SyntaxNode};
 use crate::{TextRange, TextSize};

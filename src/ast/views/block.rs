@@ -13,7 +13,6 @@
 
 use std::borrow::Cow;
 
-use crate::TextRange;
 use crate::ast::layout::{
     block_closer, block_first_line, block_header, block_token_interior, first_line_end,
     optional_after, text_in,
@@ -23,6 +22,7 @@ use crate::ast::{AstNode, Container, ElementView, HasObjects, HasParts, PartSpan
 use crate::parser::grammar::drive::frame::BodyMode;
 use crate::parser::grammar::forms::block::{ORG_BLOCK_NAMES, block_body_mode};
 use crate::syntax::{OrgSyntaxKind, SyntaxNode};
+use crate::{TextRange, TextSize};
 
 crate::ast_node!(
     /// A block, `#+begin_NAME` ... `#+end_NAME`, or a dynamic block,
@@ -201,6 +201,27 @@ impl Block {
         block_token_interior(self.syntax())
     }
 
+    /// The commas that escape a src, example or export block's code: on each
+    /// line whose first characters after spaces and tabs are commas followed
+    /// by `*` or `#+`, the comma [`unescape_code`] removes, the one just
+    /// before the mark. Empty for the other kinds, whose body is not code.
+    #[must_use]
+    pub fn escape_commas(&self) -> Vec<TextRange> {
+        if !holds_code(self.syntax().kind()) {
+            return Vec::new();
+        }
+        let interior = self.interior_range();
+        let text = self.syntax().text().slice(interior).to_string();
+        let mut out = Vec::new();
+        for_code_lines(&text, |commas, mark| {
+            if commas > 0 {
+                let at = interior.start() + TextSize::from((mark - 1) as u32);
+                out.push(TextRange::at(at, TextSize::from(1)));
+            }
+        });
+        out
+    }
+
     /// Src language or export backend, when that slot is present.
     #[must_use]
     pub fn language(&self) -> Option<String> {
@@ -344,17 +365,19 @@ pub fn escape_code(code: &str) -> Cow<'_, str> {
     map_code_lines(code, |_| true, |out| out.push(','))
 }
 
-/// Rewrite every line of `s` that starts, after spaces and tabs, with a run
-/// of commas (possibly empty) and then `*` or `#+`, when `applies(run)`:
-/// `edit` is called with the output written up to the comma run's end.
-fn map_code_lines(
-    s: &str,
-    applies: impl Fn(usize) -> bool,
-    edit: impl Fn(&mut String),
-) -> Cow<'_, str> {
+/// Escape the lines of code that Org would read as syntax: a comma is added
+/// before a line whose first characters after spaces and tabs are `*` or
+/// `#+`. A line already escaped (commas before the mark) is kept as
+/// written, so `unescape_code` reads it as it did.
+pub(crate) fn escape_bare_code(code: &str) -> Cow<'_, str> {
+    map_code_lines(code, |commas| commas == 0, |out| out.push(','))
+}
+
+/// Call `f(commas, mark)` for every line of `s` that starts, after spaces
+/// and tabs, with a run of `commas` commas and then `*` or `#+` at byte
+/// `mark`.
+fn for_code_lines(s: &str, mut f: impl FnMut(usize, usize)) {
     let bytes = s.as_bytes();
-    let mut out: Option<String> = None;
-    let mut copied = 0;
     let mut line = 0;
     while line < bytes.len() {
         let mut i = line;
@@ -365,29 +388,50 @@ fn map_code_lines(
         while i < bytes.len() && bytes[i] == b',' {
             i += 1;
         }
-        let run = i - run_start;
         let marked = bytes.get(i) == Some(&b'*')
             || (bytes.get(i) == Some(&b'#') && bytes.get(i + 1) == Some(&b'+'));
-        if marked && applies(run) {
+        if marked {
+            f(i - run_start, i);
+        }
+        line = next_code_line(bytes, i);
+    }
+}
+
+/// Where the line after the one holding byte `i` starts, a line ending as
+/// the lexer ends one: `\r\n`, `\r` or `\n`.
+fn next_code_line(bytes: &[u8], i: usize) -> usize {
+    bytes[i..]
+        .iter()
+        .position(|&b| b == b'\n' || b == b'\r')
+        .map_or(bytes.len(), |n| {
+            let end = i + n;
+            if bytes[end] == b'\r' && bytes.get(end + 1) == Some(&b'\n') {
+                end + 2
+            } else {
+                end + 1
+            }
+        })
+}
+
+/// Rewrite every line of `s` that starts, after spaces and tabs, with a run
+/// of commas (possibly empty) and then `*` or `#+`, when `applies(run)`:
+/// `edit` is called with the output written up to the comma run's end.
+fn map_code_lines(
+    s: &str,
+    applies: impl Fn(usize) -> bool,
+    edit: impl Fn(&mut String),
+) -> Cow<'_, str> {
+    let mut out: Option<String> = None;
+    let mut copied = 0;
+    for_code_lines(s, |run, mark| {
+        if applies(run) {
             let o = out.get_or_insert_with(|| String::with_capacity(s.len() + 8));
             // The comma goes, or comes, just before the mark.
-            o.push_str(&s[copied..i]);
+            o.push_str(&s[copied..mark]);
             edit(o);
-            copied = i;
+            copied = mark;
         }
-        // A line ends as the lexer ends one: `\r\n`, `\r` or `\n`.
-        line = bytes[i..]
-            .iter()
-            .position(|&b| b == b'\n' || b == b'\r')
-            .map_or(bytes.len(), |n| {
-                let end = i + n;
-                if bytes[end] == b'\r' && bytes.get(end + 1) == Some(&b'\n') {
-                    end + 2
-                } else {
-                    end + 1
-                }
-            });
-    }
+    });
     match out {
         Some(mut o) => {
             o.push_str(&s[copied..]);
@@ -1165,6 +1209,25 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn escape_commas_are_the_ones_unescaping_removes() {
+        let src = "#+begin_src sh\n,* a\n  ,,#+b\nc,*\n#+end_src\n";
+        let (doc, b) = block(src, OrgSyntaxKind::SRC_BLOCK);
+        let commas: Vec<&str> = b
+            .escape_commas()
+            .into_iter()
+            .map(|r| &doc.source()[r])
+            .collect();
+        assert_eq!(commas, [",", ","]);
+        let starts: Vec<u32> = b.escape_commas().iter().map(|r| r.start().into()).collect();
+        assert_eq!(starts, [15, 23]);
+        let (_, quote) = block(
+            "#+begin_quote\n,* a\n#+end_quote\n",
+            OrgSyntaxKind::QUOTE_BLOCK,
+        );
+        assert_eq!(quote.escape_commas(), Vec::new());
     }
 }
 
