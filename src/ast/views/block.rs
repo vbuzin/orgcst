@@ -211,7 +211,8 @@ impl Block {
             return Vec::new();
         }
         let interior = self.interior_range();
-        let text = self.syntax().text().slice(interior).to_string();
+        let start = self.syntax().text_range().start();
+        let text = self.syntax().text().slice(interior - start).to_string();
         let mut out = Vec::new();
         for_code_lines(&text, |commas, mark| {
             if commas > 0 {
