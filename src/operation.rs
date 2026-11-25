@@ -48,6 +48,13 @@ pub enum PropertyEdit {
         /// The value to write; `None` writes the key alone.
         value: Option<String>,
     },
+    /// `:KEY+: value`, which adds to the value the heading inherits rather
+    /// than setting it: the last line of the key takes it, or a new line
+    /// is written. An empty value is invalid.
+    Append {
+        /// The value to add.
+        value: String,
+    },
 }
 
 /// Per-slot patch on a planning line.

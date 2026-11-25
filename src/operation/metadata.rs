@@ -34,7 +34,10 @@ pub(super) fn compile_set_property(
     match edit {
         PropertyEdit::Delete => compile_property_delete(doc, drawer.as_ref(), key),
         PropertyEdit::Set { value } => {
-            compile_property_set(doc, drawer.as_ref(), insert, key, value.as_deref())
+            compile_property_set(doc, drawer.as_ref(), insert, key, value.as_deref(), false)
+        }
+        PropertyEdit::Append { value } => {
+            compile_property_set(doc, drawer.as_ref(), insert, key, Some(value), true)
         }
     }
 }
@@ -65,30 +68,27 @@ fn compile_property_set(
     insert: InsertPoint,
     key: &str,
     value: Option<&str>,
+    append: bool,
 ) -> Result<EditSet, OperationError> {
     if matches!(value, Some(v) if v.is_empty() || v.contains(['\n', '\r'])) {
         return Err(OperationError::InvalidPropertyValue(key.to_string()));
     }
     if let Some(drawer) = drawer {
         if let Some(np) = drawer.get(key) {
-            if !np.is_append() && np.value().as_deref() == value {
+            if np.is_append() == append && np.value().as_deref() == value {
                 return Ok(empty_edit_set(doc.source()));
             }
             let base = np.written_base_key();
             let line = render_node_property(NodePropertySpec {
                 key: &base,
                 value,
-                append: false,
+                append,
             })
             .map_err(map_synthesis)?;
             return Ok(EditSet::single(doc.source(), np.range(), line)?);
         }
-        let line = render_node_property(NodePropertySpec {
-            key,
-            value,
-            append: false,
-        })
-        .map_err(map_synthesis)?;
+        let line =
+            render_node_property(NodePropertySpec { key, value, append }).map_err(map_synthesis)?;
         let dest = drawer.new_property_insert_point();
         return Ok(EditSet::single(
             doc.source(),
@@ -96,12 +96,8 @@ fn compile_property_set(
             wrap_insert(dest, &line),
         )?);
     }
-    let drawer = render_property_drawer(&[NodePropertySpec {
-        key,
-        value,
-        append: false,
-    }])
-    .map_err(map_synthesis)?;
+    let drawer = render_property_drawer(&[NodePropertySpec { key, value, append }])
+        .map_err(map_synthesis)?;
     Ok(EditSet::single(
         doc.source(),
         TextRange::empty(insert.offset()),
@@ -404,6 +400,37 @@ mod tests {
             ),
         );
         assert_eq!(text, ":PROPERTIES:\n:ID: abc\n:END:\n");
+    }
+
+    #[test]
+    fn append_writes_a_plus_line_and_keeps_one_in_its_spelling() {
+        let append = |src: &str, v: &str| {
+            let doc = parse(src);
+            compile_write(
+                &doc,
+                &set_prop(
+                    heading_ref(&doc),
+                    "header-args",
+                    PropertyEdit::Append { value: v.into() },
+                ),
+            )
+            .1
+        };
+        assert_eq!(
+            append("* H\n", ":session s"),
+            "* H\n:PROPERTIES:\n:header-args+: :session s\n:END:\n"
+        );
+        assert_eq!(
+            append("* H\n:PROPERTIES:\n:ID: x\n:END:\n", ":dir /a"),
+            "* H\n:PROPERTIES:\n:ID: x\n:header-args+: :dir /a\n:END:\n"
+        );
+        assert_eq!(
+            append(
+                "* H\n:PROPERTIES:\n:header-args+: :dir /a\n:END:\n",
+                ":dir /b"
+            ),
+            "* H\n:PROPERTIES:\n:header-args+: :dir /b\n:END:\n"
+        );
     }
 
     #[test]

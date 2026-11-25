@@ -40,6 +40,8 @@ is what Org does with a value, not its syntax.
 - `Operation::SetAffiliated`: an element's affiliated keyword (`NAME`,
   `CAPTION`, `HEADER`, `ATTR_<BACKEND>`) set, added or removed;
   `SetAttribute` writes through the same rule.
+- `PropertyEdit::Append`: a property written as `:KEY+:`, adding to the
+  value the heading inherits.
 - `argument_words` and `variables`: a header argument's value read as
   words, and a `:var` value as its assignments, as Babel splits them.
 - `parity/parity.sh properties`: inherited properties and `#+CATEGORY:`
