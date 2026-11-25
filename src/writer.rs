@@ -16,7 +16,7 @@ mod timestamp;
 #[cfg(test)]
 mod equal;
 
-pub use argument::{ArgumentProblem, arguments, set_argument};
+pub use argument::{ArgumentProblem, argument_words, arguments, set_argument, variables};
 pub use escape::is_valid_tag_name;
 pub use heading::{TitleProblem, tag_group, title_is_writable, title_problem};
 pub use property::is_valid_property_key;

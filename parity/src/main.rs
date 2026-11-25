@@ -4,7 +4,9 @@ mod corpus;
 mod diff;
 mod project;
 
-use corpus::{check_priorities, config_from_sidecar, org_version, plan, read_pin};
+use corpus::{
+    check_priorities, check_properties, config_from_sidecar, org_version, plan, read_pin,
+};
 use diff::{diff_trees, render};
 use project::project;
 use serde::Deserialize;
@@ -28,11 +30,12 @@ fn run() -> Result<(), String> {
     let mut args = env::args().skip(1);
     let cmd = args
         .next()
-        .ok_or("usage: org-parity <plan|diff|priorities|record-version>")?;
+        .ok_or("usage: org-parity <plan|diff|priorities|properties|record-version>")?;
     match cmd.as_str() {
         "plan" => cmd_plan(&mut args),
         "diff" => cmd_diff(&mut args),
         "priorities" => cmd_priorities(&mut args),
+        "properties" => cmd_properties(&mut args),
         "record-version" => cmd_record(&mut args),
         other => Err(format!("unknown command {other}")),
     }
@@ -136,6 +139,17 @@ fn cmd_priorities(args: &mut impl Iterator<Item = String>) -> Result<(), String>
         .map_err(|err| format!("priorities emacs stdout is not JSON: {err}"))?;
     let want = read_pin(std::path::Path::new(&pin))?;
     check_priorities(std::path::Path::new(&table), &emacs, &want)
+}
+
+fn cmd_properties(args: &mut impl Iterator<Item = String>) -> Result<(), String> {
+    let emacs_path = flag(args, "--emacs")?;
+    let table = flag(args, "--table")?;
+    let pin = flag(args, "--pin")?;
+    let text = fs::read_to_string(&emacs_path).map_err(|err| format!("{emacs_path}: {err}"))?;
+    let emacs: Value = serde_json::from_str(text.trim())
+        .map_err(|err| format!("properties emacs stdout is not JSON: {err}"))?;
+    let want = read_pin(std::path::Path::new(&pin))?;
+    check_properties(std::path::Path::new(&table), &emacs, &want)
 }
 
 fn cmd_record(args: &mut impl Iterator<Item = String>) -> Result<(), String> {

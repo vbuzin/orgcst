@@ -7,21 +7,56 @@ a minor release may break the API.
 
 ## [Unreleased]
 
-### Fixed
+### Removed
 
-- `WrapInElement` and `SetElementName` refuse a result whose block would not
-  keep the elements it was given: a verse holds only text, so a list or a
-  block wrapped in one, or a quote holding them renamed to one, is
-  `NotAllowedHere`.
+What fails the scope test (ARCHITECTURE.md, "What the crate covers"): it
+is what Org does with a value, not its syntax.
+
+- `Document::header_args` and `HeaderArgsOrigin`: which properties a src
+  block reads and how they override is Babel's merge. The pieces stay:
+  property drawers, `#+PROPERTY:` lines, `#+HEADER:` lines, the begin
+  line's parameters and the `:key value` notation (`arguments`).
+- `Document::special`, `EntryFact` and `EntryFactValue`, and
+  `EntryFacts::ordered`, `category_property`, `child_todo_keywords`,
+  `timestamp` and `timestamp_ia`: Org's special properties are computed by
+  Org, not written.
+- `Document::address_at` and `InternalAddress`: how a link should point at
+  a place is `org-store-link`'s choice.
+- `Document::expand`: an editor's expand-selection; `ancestor_ranges` stays.
+- `Headline::is_archived`: the archive tag is `org-archive-tag`, an option.
+
+### Changed
+
+- `Document::property_inherited` and `Declarations::property_inherited`
+  return an `InheritedProperty`: every level that gives a part, nearest
+  first, with its origin, and the value they fold to. A `KEY+` adds to the
+  value inherited from above, as `org-entry-get` reads it, where the walk
+  stopped at the nearest level before.
 
 ### Added
 
+- `Document::file_property_inherited`: a property as Org reads it before
+  the first heading.
+- `Operation::SetAffiliated`: an element's affiliated keyword (`NAME`,
+  `CAPTION`, `HEADER`, `ATTR_<BACKEND>`) set, added or removed;
+  `SetAttribute` writes through the same rule.
+- `argument_words` and `variables`: a header argument's value read as
+  words, and a `:var` value as its assignments, as Babel splits them.
+- `parity/parity.sh properties`: inherited properties and `#+CATEGORY:`
+  checked against `org-entry-get`.
 - `Operation::ExtendElement`: the element right after a block or a drawer
   made part of it, its end line moved past that element, code escaped as
   it comes into a src, example or export block. Its edit set touches only
   what changes, so an offset in the element taken in maps to where it is.
 - `Block::interior_range`: every line between a block's begin and end
   lines, blank lines included, as `Drawer::body_range` is for a drawer.
+
+### Fixed
+
+- `WrapInElement` and `SetElementName` refuse a result whose block would not
+  keep the elements it was given: a verse holds only text, so a list or a
+  block wrapped in one, or a quote holding them renamed to one, is
+  `NotAllowedHere`.
 
 ## [0.2.0] - 2026-11-24
 

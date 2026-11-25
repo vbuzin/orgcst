@@ -599,29 +599,6 @@ pub(crate) fn property_key_eq(written: &str, query: &str) -> bool {
         .eq_ignore_ascii_case(query)
 }
 
-/// Invert of `property_key_eq(written, "header-args:{language}")` without
-/// allocating a lookup key. Bare `header-args` always matches; a language
-/// suffix matches only when `language` is present.
-#[must_use]
-pub(crate) fn header_args_key_matches(written: &str, language: Option<&str>) -> bool {
-    if property_key_eq(written, "header-args") {
-        return true;
-    }
-    let Some(language) = language else {
-        return false;
-    };
-    let base = written.strip_suffix('+').unwrap_or(written);
-    let Some(suffix) = strip_ascii_prefix_caseless(base, "header-args:") else {
-        return false;
-    };
-    suffix.eq_ignore_ascii_case(language)
-}
-
-fn strip_ascii_prefix_caseless<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
-    let (head, tail) = s.split_at_checked(prefix.len())?;
-    head.eq_ignore_ascii_case(prefix).then_some(tail)
-}
-
 /// Caseless-key merge for `#+PROPERTY:` lines and drawer `NODE_PROPERTY`s.
 ///
 /// `+` appends with a space; a later bare key replaces; the surviving range
@@ -650,19 +627,6 @@ pub(crate) fn merge_properties(entries: impl IntoIterator<Item = RawProperty>) -
         }
     }
     acc
-}
-
-/// Unmerged live `#+PROPERTY:` lines, document order (no caseless merge).
-pub(crate) fn raw_file_property_lines(root: &SyntaxNode) -> impl Iterator<Item = RawProperty> + '_ {
-    keyword_lines(root).filter_map(|line| {
-        if !line.key.eq_ignore_ascii_case("property") {
-            return None;
-        }
-        let base = line
-            .value_range
-            .map_or(line.key_range.end(), rowan::TextRange::start);
-        parse_property_value(&line.value, base)
-    })
 }
 
 /// `#+MACRO:` value: name, arg names, body. Unclosed `(` skips the line.
@@ -721,31 +685,6 @@ pub(crate) fn parse_link_abbrev_value(value: &str) -> Option<(String, String)> {
         i += 1;
     }
     Some((key, value[i..].to_string()))
-}
-
-/// Babel `:key val` scan over a value string. Malformed quotes skip the rest.
-pub(crate) fn parse_babel_header_args(value: &str, base: TextSize) -> Vec<RawProperty> {
-    babel_arguments(value)
-        .into_iter()
-        .map(|a| {
-            let at = |r: std::ops::Range<usize>| {
-                TextRange::at(
-                    base + TextSize::from(r.start as u32),
-                    TextSize::from((r.end - r.start) as u32),
-                )
-            };
-            let key = value[a.key.clone()].to_string();
-            let range = match a.raw_value {
-                Some(r) if !a.value.is_empty() => at(r),
-                _ => at(a.key),
-            };
-            RawProperty {
-                key,
-                value: a.value,
-                range,
-            }
-        })
-        .collect()
 }
 
 /// One `:key value` argument of a list Babel and `ATTR_` lines write, by
@@ -1450,26 +1389,6 @@ mod tests {
     }
 
     #[test]
-    fn header_args_key_matches_bare_and_language_suffix() {
-        assert!(header_args_key_matches("header-args", None));
-        assert!(header_args_key_matches("HEADER-ARGS+", None));
-        assert!(!header_args_key_matches("header-args:python", None));
-        assert!(header_args_key_matches(
-            "header-args:python",
-            Some("python")
-        ));
-        assert!(header_args_key_matches(
-            "HEADER-ARGS:Python+",
-            Some("python")
-        ));
-        assert!(!header_args_key_matches(
-            "header-args:python",
-            Some("elisp")
-        ));
-        assert!(!header_args_key_matches("header-args:", Some("python")));
-    }
-
-    #[test]
     fn merge_properties_append_replace_caseless() {
         let r = |start, end| TextRange::new(TextSize::from(start), TextSize::from(end));
         let merged = merge_properties([
@@ -1531,59 +1450,25 @@ mod tests {
     }
 
     #[test]
-    fn parse_babel_header_args_unquoted_quoted_and_lone_colon() {
-        let base = TextSize::from(10);
-        let rows = parse_babel_header_args(":results output code :exports both", base);
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].key, "results");
-        assert_eq!(rows[0].value, "output code");
-        assert_eq!(rows[1].key, "exports");
-        assert_eq!(rows[1].value, "both");
-
-        let quoted = parse_babel_header_args(r#":file "a b.txt""#, TextSize::from(0));
-        assert_eq!(quoted.len(), 1);
-        assert_eq!(quoted[0].key, "file");
-        assert_eq!(quoted[0].value, "a b.txt");
-
-        let skip_rest = parse_babel_header_args(":file \"unclosed", TextSize::from(0));
-        assert!(skip_rest.is_empty(), "{skip_rest:?}");
-
-        let lone = parse_babel_header_args(": :exports both", TextSize::from(0));
-        assert_eq!(lone.len(), 1);
-        assert_eq!(lone[0].key, "exports");
-        assert_eq!(lone[0].value, "both");
-
-        let v = ":results output code :exports both";
-        let rows = parse_babel_header_args(v, base);
-        let output_at = v.find("output").unwrap() as u32;
-        assert_eq!(rows[0].range.start(), base + TextSize::from(output_at));
-
-        let empty_val = parse_babel_header_args(":exports", TextSize::from(0));
-        assert_eq!(empty_val.len(), 1);
-        assert_eq!(empty_val[0].key, "exports");
-        assert_eq!(empty_val[0].value, "");
-
-        let single = parse_babel_header_args(":file 'a b'", TextSize::from(0));
-        assert_eq!(single.len(), 1);
-        assert_eq!(single[0].value, "a b");
-
-        let escaped = parse_babel_header_args(r#":file "a\"b""#, TextSize::from(0));
-        assert_eq!(escaped.len(), 1);
-        assert_eq!(escaped[0].value, "a\"b");
-
-        let trailing_bs = parse_babel_header_args(":file \"ab\\", TextSize::from(0));
-        assert!(trailing_bs.is_empty(), "{trailing_bs:?}");
-    }
-
-    #[test]
-    fn raw_file_property_lines_unmerged_document_order() {
-        let doc = crate::parse("#+PROPERTY: FOO a\n#+PROPERTY: foo+ b\n");
-        let rows: Vec<_> = raw_file_property_lines(doc.root()).collect();
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].key, "FOO");
-        assert_eq!(rows[0].value, "a");
-        assert_eq!(rows[1].key, "foo+");
-        assert_eq!(rows[1].value, "b");
+    fn babel_arguments_unquoted_quoted_and_lone_colon() {
+        let kv = |v: &str| -> Vec<(String, String)> {
+            babel_arguments(v)
+                .into_iter()
+                .map(|a| (v[a.key].to_owned(), a.value))
+                .collect()
+        };
+        let pair = |k: &str, v: &str| (k.to_owned(), v.to_owned());
+        assert_eq!(
+            kv(":results output code :exports both"),
+            [pair("results", "output code"), pair("exports", "both")]
+        );
+        assert_eq!(kv(r#":file "a b.txt""#), [pair("file", "a b.txt")]);
+        assert_eq!(kv(":file \"unclosed"), []);
+        assert_eq!(kv(": :exports both"), [pair("exports", "both")]);
+        assert_eq!(kv(":exports"), [pair("exports", "")]);
+        assert_eq!(kv(":file 'a b'"), [pair("file", "a b")]);
+        assert_eq!(kv(r#":file "a\"b""#), [pair("file", "a\"b")]);
+        assert_eq!(kv(":file \"ab\\"), []);
     }
 
     /// Collection reads the same file layer whichever vocabulary the tree was

@@ -666,6 +666,29 @@ Object :end includes :post-blank. The CST object does not."
              'rows (parity-vec (nreverse rows)))))
     (princ "\n")))
 
+;; A property as Org reads it at a heading, inheriting (`org-entry-get' with
+;; inheritance); at the file's start when the row names no heading.
+(defun parity-property-value (row)
+  (with-temp-buffer
+    (insert (gethash "org" row))
+    (org-mode)
+    (goto-char (point-min))
+    (let ((heading (gethash "heading" row)))
+      (when heading
+        (re-search-forward org-outline-regexp-bol nil nil (1+ heading))
+        (beginning-of-line)))
+    (or (org-entry-get nil (gethash "key" row) t) :null)))
+
+(defun parity-properties (path)
+  (let ((rows nil))
+    (dolist (row (parity-read-json path))
+      (push (parity-property-value row) rows))
+    (princ (json-serialize
+            (parity-obj
+             'org_version (org-version)
+             'rows (parity-vec (nreverse rows)))))
+    (princ "\n")))
+
 (defun parity-syntax-probe ()
   (with-temp-buffer
     (org-mode)
@@ -679,6 +702,7 @@ Object :end includes :post-blank. The CST object does not."
     (pcase (car args)
       ("--syntax-probe" (parity-syntax-probe))
       ("--priorities" (parity-priorities (cadr args)))
+      ("--properties" (parity-properties (cadr args)))
       (_
        (unless (and (car args) (cadr args))
          (error "Usage: dump.el -- FILE SIDECAR"))

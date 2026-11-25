@@ -478,7 +478,10 @@ snapshot either: a caller that asks about many headlines takes
 tags, its lead-in drawer, its `#+PROPERTY:` lines) in one walk and borrows
 the snapshot, as Org reads a buffer's settings once when it is set up.
 `Document::tags` and `Document::property_inherited` answer through the same
-rule, reading the file's part on each call.
+rule, reading the file's part on each call. An inherited property walks out
+as `org-entry-get` does: each level's `KEY+` adds to the value above it, and
+the first level that sets the key outright ends the walk; every level that
+gave a part is reported with its origin.
 
 A document's own vocabulary always wins. There is no mode that parses a file
 while ignoring its `#+TODO:`, because Org has none and a file must open here

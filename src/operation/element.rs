@@ -9,7 +9,9 @@
 use std::borrow::Cow;
 
 use crate::ast::holds_code;
-use crate::ast::{AstNode, Block, BlockPart, Drawer, Element, ElementView, HasParts, escape_code};
+use crate::ast::{
+    AstNode, Block, BlockPart, Drawer, Element, ElementView, HasParts, Keyword, escape_code,
+};
 use crate::edit::{Edit, EditSet};
 use crate::parser::grammar::forms::block::block_kind;
 use crate::{Document, NodeRef, OperationError, OrgSyntaxKind, SyntaxNode, TextRange, TextSize};
@@ -778,13 +780,7 @@ pub(super) fn compile_set_attribute(
     key: &str,
     value: Option<&str>,
 ) -> Result<EditSet, OperationError> {
-    let node = target.resolve(doc).ok_or(OperationError::StaleTarget)?;
-    let Some(element) = Element::cast(node.clone()) else {
-        return Err(OperationError::WrongKind {
-            expected: &[],
-            actual: node.kind(),
-        });
-    };
+    let element = affiliating(doc, target)?;
     if backend.is_empty()
         || !backend
             .chars()
@@ -792,51 +788,18 @@ pub(super) fn compile_set_attribute(
     {
         return Err(OperationError::InvalidKeyword);
     }
-    let src = doc.source();
     let line = element.affiliated().and_then(|run| run.attr(backend));
-    let edit = if let Some(kw) = line {
-        let content = kw.value().content_range();
-        let old = doc.slice(content);
-        let new = crate::writer::set_argument(old, key, value)
-            .map_err(|_| OperationError::InvalidText)?;
-        if new == old {
-            return Ok(super::empty_edit_set(src));
-        }
-        if new.trim().is_empty() {
-            // The whole line goes, its line break with it.
-            let start = kw.syntax().text_range().start();
-            Edit {
-                range: TextRange::new(start, line_end(src, usize::from(content.end()))),
-                replacement: String::new(),
-            }
-        } else {
-            Edit {
-                range: content,
-                replacement: new,
-            }
-        }
-    } else {
-        let Some(value) = value else {
-            return Ok(super::empty_edit_set(src));
-        };
-        let arguments = crate::writer::set_argument("", key, Some(value))
-            .map_err(|_| OperationError::InvalidText)?;
-        let at = element.syntax().text_range().start();
-        Edit {
-            range: TextRange::empty(at),
-            replacement: format!("{}#+ATTR_{backend}: {arguments}\n", line_indent(doc, at)),
-        }
-    };
-    let set = EditSet::new(src, vec![edit])?;
-    let next = doc.apply(&set);
-    let kind = node.kind();
-    let moved = set.map_offset(node.text_range().start(), crate::Bias::Right);
-    let written = next
-        .root()
-        .descendants()
-        .filter_map(Element::cast)
-        .find(|e| e.syntax().kind() == kind && e.syntax().text_range().start() == moved);
-    let holds = |e: &Element| {
+    let old = line
+        .as_ref()
+        .map_or("", |kw| doc.slice(kw.value().content_range()));
+    let new =
+        crate::writer::set_argument(old, key, value).map_err(|_| OperationError::InvalidText)?;
+    if new == old {
+        return Ok(super::empty_edit_set(doc.source()));
+    }
+    let written = (!new.trim().is_empty()).then_some(new.as_str());
+    let set = write_affiliated(doc, &element, &format!("ATTR_{backend}"), line, written)?;
+    let holds = |e: &Element, next: &Document| {
         let args = e
             .affiliated()
             .and_then(|run| run.attr(backend))
@@ -850,8 +813,126 @@ pub(super) fn compile_set_attribute(
             .map(|a| a.value);
         found.as_deref() == value
     };
+    reads_back_affiliated(doc, &element, set, holds)
+}
+
+pub(super) fn compile_set_affiliated(
+    doc: &Document,
+    target: NodeRef,
+    key: &str,
+    value: Option<&str>,
+) -> Result<EditSet, OperationError> {
+    let element = affiliating(doc, target)?;
+    if key.is_empty()
+        || key.contains(|c: char| c.is_whitespace() || c == ':')
+        || value.is_some_and(|v| v.contains(['\n', '\r']))
+    {
+        return Err(OperationError::InvalidKeyword);
+    }
+    let lines: Vec<Keyword> = element
+        .affiliated()
+        .map_or_default(|run| run.by_key(key).collect());
+    let set = if let Some(v) = value {
+        let last = lines.last().cloned();
+        if last
+            .as_ref()
+            .is_some_and(|kw| doc.slice(kw.value().content_range()) == v)
+        {
+            return Ok(super::empty_edit_set(doc.source()));
+        }
+        write_affiliated(doc, &element, key, last, Some(v))?
+    } else {
+        if lines.is_empty() {
+            return Ok(super::empty_edit_set(doc.source()));
+        }
+        let src = doc.source();
+        let edits = lines.iter().map(|kw| line_removal(src, kw)).collect();
+        EditSet::new(src, edits)?
+    };
+    let holds = |e: &Element, next: &Document| {
+        let last = e.affiliated().and_then(|run| {
+            run.by_key(key)
+                .last()
+                .map(|kw| next.slice(kw.value().content_range()).to_owned())
+        });
+        last.as_deref() == value
+    };
+    reads_back_affiliated(doc, &element, set, holds)
+}
+
+/// The element `target` names, refused when it is no element (only an
+/// element takes affiliated keywords).
+fn affiliating(doc: &Document, target: NodeRef) -> Result<Element, OperationError> {
+    let node = target.resolve(doc).ok_or(OperationError::StaleTarget)?;
+    Element::cast(node.clone()).ok_or(OperationError::WrongKind {
+        expected: &[],
+        actual: node.kind(),
+    })
+}
+
+/// `line`, or a new one written as `element`'s last affiliated keyword,
+/// given `value`; `line` removed with its line break when `value` is
+/// `None`.
+fn write_affiliated(
+    doc: &Document,
+    element: &Element,
+    key: &str,
+    line: Option<Keyword>,
+    value: Option<&str>,
+) -> Result<EditSet, OperationError> {
+    let src = doc.source();
+    let edit = match (line, value) {
+        (Some(kw), Some(v)) => {
+            return super::compile(
+                doc,
+                &crate::Operation::SetKeyword {
+                    target: NodeRef::of(&kw),
+                    value: v.to_owned(),
+                },
+            );
+        }
+        (Some(kw), None) => line_removal(src, &kw),
+        (None, Some(v)) => {
+            let at = element.syntax().text_range().start();
+            Edit {
+                range: TextRange::empty(at),
+                replacement: format!("{}#+{key}: {v}\n", line_indent(doc, at)),
+            }
+        }
+        (None, None) => return Ok(super::empty_edit_set(src)),
+    };
+    Ok(EditSet::new(src, vec![edit])?)
+}
+
+/// The edit that removes the keyword line `kw`, its line break with it.
+fn line_removal(src: &str, kw: &Keyword) -> Edit {
+    let start = kw.syntax().text_range().start();
+    let content = kw.value().content_range();
+    Edit {
+        range: TextRange::new(start, line_end(src, usize::from(content.end()))),
+        replacement: String::new(),
+    }
+}
+
+/// `set` when the element it was compiled for still reads back after it,
+/// from where it moved, and `holds` of it; else refused.
+fn reads_back_affiliated(
+    doc: &Document,
+    element: &Element,
+    set: EditSet,
+    holds: impl Fn(&Element, &Document) -> bool,
+) -> Result<EditSet, OperationError> {
+    let node = element.syntax();
+    let next = doc.apply(&set);
+    let kind = node.kind();
+    let moved = set.map_offset(node.text_range().start(), crate::Bias::Right);
+    let written = next
+        .root()
+        .descendants()
+        .filter_map(Element::cast)
+        .find(|e| e.syntax().kind() == kind && e.syntax().text_range().start() == moved);
     match written {
-        Some(e) if holds(&e) => Ok(set),
+        Some(e) if holds(&e, &next) => Ok(set),
         _ => Err(OperationError::NotAllowedHere {
             kind,
             scope: node.parent().map_or(OrgSyntaxKind::DOCUMENT, |p| p.kind()),
@@ -1660,5 +1741,75 @@ mod tests {
         );
         let none = "#+begin_example\na\n#+end_example\n";
         assert_eq!(attr(none, "wrap", None).unwrap(), none);
+    }
+
+    fn affiliated(src: &str, key: &str, value: Option<&str>) -> Result<String, OperationError> {
+        let doc = parse(src);
+        let op = Operation::SetAffiliated {
+            target: first_block(&doc),
+            key: key.into(),
+            value: value.map(str::to_owned),
+        };
+        run(src, &op)
+    }
+
+    #[test]
+    fn names_a_block_and_changes_its_name() {
+        let src = "#+begin_src sh\na\n#+end_src\n";
+        assert_eq!(
+            affiliated(src, "NAME", Some("check")).unwrap(),
+            "#+NAME: check\n#+begin_src sh\na\n#+end_src\n"
+        );
+        let named = "#+name: check\n#+begin_src sh\na\n#+end_src\n";
+        assert_eq!(
+            affiliated(named, "NAME", Some("restart")).unwrap(),
+            "#+name: restart\n#+begin_src sh\na\n#+end_src\n"
+        );
+        assert_eq!(affiliated(named, "NAME", Some("check")).unwrap(), named);
+        // A synonym is the same keyword to Org.
+        let table = "#+TBLNAME: t\n| a |\n";
+        let doc = parse(table);
+        let t = doc.tables().next().expect("a table");
+        let op = Operation::SetAffiliated {
+            target: NodeRef::of(&t),
+            key: "NAME".into(),
+            value: Some("u".into()),
+        };
+        assert_eq!(run(table, &op).unwrap(), "#+TBLNAME: u\n| a |\n");
+    }
+
+    #[test]
+    fn adds_after_the_others_and_removes_every_line_of_a_key() {
+        let src = "#+NAME: x\n#+begin_src sh\na\n#+end_src\n";
+        assert_eq!(
+            affiliated(src, "HEADER", Some(":dir /srv")).unwrap(),
+            "#+NAME: x\n#+HEADER: :dir /srv\n#+begin_src sh\na\n#+end_src\n"
+        );
+        let two = "#+HEADER: :a 1\n#+NAME: x\n#+HEADER: :b 2\n#+begin_src sh\na\n#+end_src\n";
+        assert_eq!(
+            affiliated(two, "HEADER", Some(":b 3")).unwrap(),
+            "#+HEADER: :a 1\n#+NAME: x\n#+HEADER: :b 3\n#+begin_src sh\na\n#+end_src\n"
+        );
+        assert_eq!(
+            affiliated(two, "HEADER", None).unwrap(),
+            "#+NAME: x\n#+begin_src sh\na\n#+end_src\n"
+        );
+    }
+
+    #[test]
+    fn refuses_what_would_not_read_back_as_the_elements() {
+        let src = "#+begin_src sh\na\n#+end_src\n";
+        assert!(matches!(
+            affiliated(src, "TITLE", Some("x")),
+            Err(OperationError::NotAllowedHere { .. })
+        ));
+        assert_eq!(
+            affiliated(src, "NAME", Some("a\nb")),
+            Err(OperationError::InvalidKeyword)
+        );
+        assert_eq!(
+            affiliated(src, "", Some("x")),
+            Err(OperationError::InvalidKeyword)
+        );
     }
 }

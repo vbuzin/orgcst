@@ -330,8 +330,7 @@ mod tests {
         assert!(!local.is_append());
         assert_eq!(source_slice(&doc, local.key_range()), "BAR");
         assert_eq!(
-            doc.property_inherited(&b, "FOO")
-                .map(|(p, _)| p.value().to_string()),
+            doc.property_inherited(&b, "FOO").map(|i| i.value()),
             Some("a".into())
         );
     }

@@ -76,6 +76,18 @@ struct PriorityRow {
     rust: Option<[u8; 3]>,
 }
 
+/// One row of `properties.json`: a property as Org reads it at a heading
+/// (or the file's start), inheriting, and what Emacs answers. `CATEGORY`
+/// is asked of the file's `#+CATEGORY:` lines only (rows hold no
+/// `CATEGORY` property).
+#[derive(Deserialize)]
+struct PropertyRow {
+    org: String,
+    heading: Option<usize>,
+    key: String,
+    emacs: Option<String>,
+}
+
 pub fn config_from_sidecar(path: &Path) -> Result<ParseConfig, String> {
     let text = fs::read_to_string(path).map_err(|err| format!("{}: {err}", path.display()))?;
     let side: Sidecar =
@@ -410,6 +422,66 @@ pub fn check_priorities(table_path: &Path, emacs: &Value, pin: &str) -> Result<(
     } else {
         Err(errors.join("\n"))
     }
+}
+
+pub fn check_properties(table_path: &Path, emacs: &Value, pin: &str) -> Result<(), String> {
+    let version = emacs
+        .get("org_version")
+        .and_then(Value::as_str)
+        .ok_or("properties output has no org_version")?;
+    if version != pin {
+        return Err(format!("org version {version} != pin {pin}"));
+    }
+    let rows: Vec<PropertyRow> = serde_json::from_value(read_json(table_path)?)
+        .map_err(|err| format!("properties.json: {err}"))?;
+    let got = emacs
+        .get("rows")
+        .and_then(Value::as_array)
+        .ok_or("properties output has no rows")?;
+    if got.len() != rows.len() {
+        return Err(format!(
+            "emacs returned {} property rows, table has {}",
+            got.len(),
+            rows.len()
+        ));
+    }
+    let mut errors = Vec::new();
+    for (row, emacs_row) in rows.iter().zip(got) {
+        let emacs_got = emacs_row.as_str().map(str::to_owned);
+        if emacs_got != row.emacs {
+            errors.push(format!(
+                "{:?} at {:?}: emacs {emacs_got:?} != column {:?}",
+                row.key, row.heading, row.emacs
+            ));
+        }
+        let rust_got = rust_property(row);
+        if rust_got != row.emacs {
+            errors.push(format!(
+                "{:?} at {:?}: rust {rust_got:?} != column {:?}",
+                row.key, row.heading, row.emacs
+            ));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
+}
+
+fn rust_property(row: &PropertyRow) -> Option<String> {
+    let doc = orgcst::parse(&row.org);
+    if row.key.eq_ignore_ascii_case("CATEGORY") {
+        return doc.category().map(str::to_owned);
+    }
+    let inherited = match row.heading {
+        Some(n) => {
+            let outline = doc.outlines().nth(n)?;
+            doc.property_inherited(outline, &row.key)
+        }
+        None => doc.file_property_inherited(&row.key),
+    };
+    inherited.map(|i| i.value())
 }
 
 fn rust_priority(line: &str) -> Option<[u8; 3]> {

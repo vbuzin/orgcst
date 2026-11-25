@@ -169,12 +169,6 @@ pub trait Headline: HasParts<Part = HeadingPart> {
         comment_node(&self.star_syntax()).is_some()
     }
 
-    /// Whether this headline's own tags include `ARCHIVE` (ASCII caseless).
-    /// Inherited tags are not considered.
-    fn is_archived(&self) -> bool {
-        headline_is_archived(&self.star_syntax())
-    }
-
     /// The title.
     ///
     /// # Panics
@@ -337,13 +331,6 @@ fn comment_node(syntax: &SyntaxNode) -> Option<SyntaxNode> {
     syntax
         .children()
         .find(|c| c.kind() == OrgSyntaxKind::HEADING_COMMENT)
-}
-
-fn headline_is_archived(syntax: &SyntaxNode) -> bool {
-    child_view::<Tags>(syntax).is_some_and(|tags| {
-        tags.iter()
-            .any(|t| t.name().eq_ignore_ascii_case("ARCHIVE"))
-    })
 }
 
 fn headline_level(syntax: &SyntaxNode) -> usize {
@@ -613,16 +600,6 @@ mod tests {
             source_slice(&doc, h.part_content_range(HeadingPart::Title).unwrap()).trim(),
             "just a title"
         );
-    }
-
-    #[test]
-    fn is_archived_is_caseless() {
-        let (_, h) = heading("* H :ARCHIVE:\n");
-        assert!(h.is_archived());
-        let (_, h) = heading("* H :archive:\n");
-        assert!(h.is_archived());
-        let (_, h) = heading("* H :work:\n");
-        assert!(!h.is_archived());
     }
 
     #[test]

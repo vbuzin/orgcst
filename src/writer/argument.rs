@@ -37,6 +37,69 @@ pub fn arguments(list: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The words of one argument's value, as Babel splits a value of choices
+/// (`:results output table replace`) at whitespace.
+///
+/// ```
+/// use orgcst::argument_words;
+///
+/// assert_eq!(argument_words(" output  table "), ["output", "table"]);
+/// ```
+#[must_use]
+pub fn argument_words(value: &str) -> Vec<&str> {
+    value.split_whitespace().collect()
+}
+
+/// The assignments of a `:var` argument's value, each a name and the value
+/// as written, split as Babel splits them: at commas outside brackets and
+/// quotes, the name before the first `=`, both trimmed. An assignment with
+/// no `=` has an empty value.
+///
+/// ```
+/// use orgcst::variables;
+///
+/// assert_eq!(variables("x=1, rows=table[1,2]"),
+///            [("x".to_owned(), "1".to_owned()),
+///             ("rows".to_owned(), "table[1,2]".to_owned())]);
+/// assert_eq!(variables(r#"s="a, b""#), [("s".to_owned(), r#""a, b""#.to_owned())]);
+/// ```
+#[must_use]
+pub fn variables(value: &str) -> Vec<(String, String)> {
+    let mut parts = Vec::new();
+    let (mut depth, mut quoted, mut escaped, mut start) = (0usize, false, false, 0usize);
+    for (i, c) in value.char_indices() {
+        if quoted {
+            match c {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => quoted = false,
+                _ => {}
+            }
+            continue;
+        }
+        match c {
+            '"' => quoted = true,
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(&value[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&value[start..]);
+    parts
+        .into_iter()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| match p.split_once('=') {
+            Some((name, v)) => (name.trim().to_owned(), v.trim().to_owned()),
+            None => (p.to_owned(), String::new()),
+        })
+        .collect()
+}
+
 /// `arguments` with the argument `key` set to `value`, or removed when
 /// `value` is `None`.
 ///

@@ -12,8 +12,8 @@
 use std::marker::PhantomData;
 
 use super::{
-    Property, PropertyOrigin, lead_in_file_drawer, property_from_drawer, property_from_raw,
-    tag_from_raw,
+    InheritedProperty, Property, PropertyOrigin, lead_in_file_drawer, property_from_drawer,
+    property_from_raw, tag_from_raw,
 };
 use crate::Document;
 use crate::ast::nav;
@@ -77,24 +77,20 @@ impl Declarations<'_> {
         tag_chain(heading, self.file_tags.iter().cloned()).into_iter()
     }
 
-    /// The nearest value of `key` walking outwards, with where it came from:
-    /// the task's own drawer, the ancestor outlines (for an inline task, its
-    /// enclosing outline first), the file's property drawer, then
-    /// `#+PROPERTY:` lines. Values are inherited only from outlines, never
-    /// from another inline task.
+    /// `key` as Org reads it from `task`, inheriting: see
+    /// [`Document::property_inherited`].
     #[must_use]
     pub fn property_inherited(
         &self,
         task: impl Into<Task>,
         key: &str,
-    ) -> Option<(Property, PropertyOrigin)> {
-        property_chain(&task.into(), key).or_else(|| {
-            file_property(
-                self.file_drawer.clone(),
-                self.keyword_properties.iter().cloned(),
-                key,
-            )
-        })
+    ) -> Option<InheritedProperty> {
+        inherited(
+            Some(&task.into()),
+            self.file_drawer.clone(),
+            self.keyword_properties.iter().cloned(),
+            key,
+        )
     }
 }
 
@@ -128,32 +124,55 @@ fn push_inherited_tags(out: &mut Vec<(Tag, TagOrigin)>, heading: &Heading) {
     }
 }
 
-/// `key` in the task's own drawer, else the nearest ancestor outline's.
-pub(super) fn property_chain(task: &Task, key: &str) -> Option<(Property, PropertyOrigin)> {
-    if let Some(v) = property_from_drawer(task.property_drawer(), key) {
-        return Some((v, PropertyOrigin::Local));
-    }
-    for outline in nav::inherited_outlines(task.syntax()) {
-        if let Some(v) = property_from_drawer(outline.property_drawer(), key) {
-            return Some((v, PropertyOrigin::Inherited { from: outline }));
-        }
-    }
-    None
-}
-
-/// `key` at the file level: its lead-in property drawer, then its
-/// `#+PROPERTY:` lines.
-pub(super) fn file_property(
-    drawer: Option<PropertyDrawer>,
+/// `key` as Org reads it from `task`, or from the file's level with no
+/// task: the task's own drawer, each ancestor outline's, the file's
+/// property drawer, then its `#+PROPERTY:` lines, walking out until a level
+/// sets it outright rather than adding to it with `KEY+`, as
+/// `org-entry-get` with inheritance does. The one rule
+/// [`Document::property_inherited`] and [`Declarations::property_inherited`]
+/// answer by.
+pub(super) fn inherited(
+    task: Option<&Task>,
+    file_drawer: Option<PropertyDrawer>,
     mut keyword_lines: impl Iterator<Item = Property>,
     key: &str,
-) -> Option<(Property, PropertyOrigin)> {
-    if let Some(v) = property_from_drawer(drawer, key) {
-        return Some((v, PropertyOrigin::FileDrawer));
+) -> Option<InheritedProperty> {
+    let mut parts = Vec::new();
+    'walk: {
+        if let Some(task) = task {
+            let own = property_from_drawer(task.property_drawer(), key);
+            if push_level(&mut parts, own, PropertyOrigin::Local) {
+                break 'walk;
+            }
+            for outline in nav::inherited_outlines(task.syntax()) {
+                let p = property_from_drawer(outline.property_drawer(), key);
+                if push_level(&mut parts, p, PropertyOrigin::Inherited { from: outline }) {
+                    break 'walk;
+                }
+            }
+        }
+        let drawer = property_from_drawer(file_drawer, key);
+        if push_level(&mut parts, drawer, PropertyOrigin::FileDrawer) {
+            break 'walk;
+        }
+        let line = keyword_lines.find(|p| property_key_eq(p.key(), key));
+        push_level(&mut parts, line, PropertyOrigin::FileKeyword);
     }
-    keyword_lines
-        .find(|p| property_key_eq(p.key(), key))
-        .map(|v| (v, PropertyOrigin::FileKeyword))
+    (!parts.is_empty()).then(|| InheritedProperty::from_parts(parts))
+}
+
+/// Adds a level's value, if it has one; true when it sets the property
+/// rather than adding to it.
+fn push_level(
+    parts: &mut Vec<(Property, PropertyOrigin)>,
+    value: Option<Property>,
+    origin: PropertyOrigin,
+) -> bool {
+    value.is_some_and(|p| {
+        let sets = !p.key().ends_with('+');
+        parts.push((p, origin));
+        sets
+    })
 }
 
 #[cfg(test)]
@@ -196,8 +215,8 @@ mod tests {
                 let a = declared.property_inherited(outline.clone(), key);
                 let b = doc.property_inherited(outline.clone(), key);
                 assert_eq!(
-                    a.map(|(p, o)| (p.value().to_owned(), std::mem::discriminant(&o))),
-                    b.map(|(p, o)| (p.value().to_owned(), std::mem::discriminant(&o))),
+                    a.map(|i| (i.value(), std::mem::discriminant(&i.nearest().1))),
+                    b.map(|i| (i.value(), std::mem::discriminant(&i.nearest().1))),
                     "{key}"
                 );
             }
@@ -223,14 +242,16 @@ mod tests {
             ]
         );
         let task = Task::from(doc.outlines().last().expect("three outlines"));
-        let (area, origin) = declared
+        let area = declared
             .property_inherited(task.clone(), "AREA")
             .expect("file drawer");
+        let (area, origin) = area.nearest().clone();
         assert_eq!(area.value(), "home");
         assert!(matches!(origin, PropertyOrigin::FileDrawer));
-        let (room, origin) = declared
+        let room = declared
             .property_inherited(task, "ROOM")
             .expect("inherited");
+        let (room, origin) = room.nearest().clone();
         assert_eq!(room.value(), "hall");
         assert!(matches!(origin, PropertyOrigin::Inherited { .. }));
     }

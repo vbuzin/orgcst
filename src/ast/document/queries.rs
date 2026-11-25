@@ -234,7 +234,7 @@ impl Document {
     }
 
     /// The spans that contain `range`, innermost first, without duplicates,
-    /// ending with the whole document: the steps of an expand-selection.
+    /// ending with the whole document.
     ///
     /// For a caret (empty `range`) the steps are the part under the caret and
     /// the frames of [`Self::context_at`]. For a non-empty range they are the
@@ -243,14 +243,6 @@ impl Document {
     /// ranges are not steps.
     pub fn ancestor_ranges(&self, range: TextRange) -> impl Iterator<Item = TextRange> + '_ {
         ancestor_ranges_vec(self, range).into_iter()
-    }
-
-    /// The first of [`Self::ancestor_ranges`] that is strictly larger than
-    /// `range`.
-    #[must_use]
-    pub fn expand(&self, range: TextRange) -> Option<TextRange> {
-        self.ancestor_ranges(range)
-            .find(|r| r.contains_range(range) && *r != range)
     }
 }
 
@@ -340,6 +332,12 @@ mod tests {
     use crate::syntax::OrgSyntaxKind;
     use crate::tests::nodes_of_kind;
     use crate::*;
+
+    /// The first of `ancestor_ranges` strictly larger than `range`.
+    fn next_larger(doc: &Document, range: TextRange) -> Option<TextRange> {
+        doc.ancestor_ranges(range)
+            .find(|r| r.contains_range(range) && *r != range)
+    }
 
     #[test]
     fn first_outline_table() {
@@ -681,13 +679,13 @@ mod tests {
         assert!(ladder.iter().any(|r| *r == o.range()));
         let own: Vec<_> = doc.ancestor_ranges(o.range()).collect();
         assert!(own.iter().any(|r| *r == o.range()));
-        let expanded = doc.expand(star).expect("expand");
+        let expanded = next_larger(&doc, star).expect("expand");
         assert_ne!(expanded, TextRange::up_to(TextSize::of(src)));
         assert!(expanded.contains_range(star));
     }
 
     #[test]
-    fn ancestor_ranges_nested_and_expand_reaches_document() {
+    fn ancestor_ranges_nested_and_reach_the_document() {
         let src = "* see [[http://ex.com][*x*]]\n";
         let doc = parse(src);
         let caret = TextRange::empty(at(src, "*x*"));
@@ -703,7 +701,7 @@ mod tests {
         assert_eq!(*ladder.last().unwrap(), TextRange::up_to(TextSize::of(src)));
         let mut r = caret;
         let mut steps = 0;
-        while let Some(next) = doc.expand(r) {
+        while let Some(next) = next_larger(&doc, r) {
             steps += 1;
             assert!(next.contains_range(r) && next != r);
             r = next;
@@ -713,7 +711,7 @@ mod tests {
     }
 
     #[test]
-    fn covering_caption_expand_construct_then_full_range() {
+    fn covering_caption_construct_then_full_range() {
         let src = "#+CAPTION: c\npara\n";
         let doc = parse(src);
         let para = Paragraph::cast(
@@ -724,10 +722,10 @@ mod tests {
         )
         .unwrap();
         let caret = TextRange::empty(at(src, "ara"));
-        assert_eq!(doc.expand(caret), Some(para.range()));
+        assert_eq!(next_larger(&doc, caret), Some(para.range()));
         let full = para.full_range();
         assert!(full.start() < para.range().start());
-        assert_eq!(doc.expand(para.range()), Some(full));
+        assert_eq!(next_larger(&doc, para.range()), Some(full));
     }
 
     #[test]
@@ -742,7 +740,7 @@ mod tests {
         let caret = TextRange::empty(at_close);
         let italic_v = crate::ast::Markup::cast(italic.clone()).unwrap();
         assert!(italic_v.part_at(at_close).is_none());
-        let first = doc.expand(caret).expect("expand");
+        let first = next_larger(&doc, caret).expect("expand");
         assert_eq!(first, italic.text_range());
         let ladder: Vec<_> = doc.ancestor_ranges(caret).collect();
         for w in ladder.windows(2) {
@@ -761,7 +759,7 @@ mod tests {
             .next()
             .unwrap();
         let caret = TextRange::empty(bold.text_range().end());
-        assert_eq!(doc.expand(caret), Some(bold.text_range()));
+        assert_eq!(next_larger(&doc, caret), Some(bold.text_range()));
     }
 
     #[test]

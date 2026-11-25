@@ -6,10 +6,11 @@
 //! `org-use-tag-inheritance` or `org-use-property-inheritance` is left to the
 //! caller.
 
-use super::declarations::{file_property, property_chain, tag_chain};
+use super::declarations::{inherited, tag_chain};
 use super::{
-    DeclaredTags, Property, PropertyOrigin, TagGroup, TagGroupKind, lead_in_file_drawer,
-    merged_drawer_properties, property_from_drawer, property_from_raw, tag_from_raw,
+    DeclaredTags, InheritedProperty, Property, PropertyOrigin, TagGroup, TagGroupKind,
+    lead_in_file_drawer, merged_drawer_properties, property_from_drawer, property_from_raw,
+    tag_from_raw,
 };
 use crate::ast::{AstNode, Headline, Tag, TagOrigin, Task};
 use crate::settings::{
@@ -145,30 +146,55 @@ impl Document {
         property_from_drawer(task.into().property_drawer(), key)
     }
 
-    /// The nearest value of `key` walking outwards, with where it came from.
-    ///
-    /// The order is the task's own drawer, then the ancestor outlines (for an
+    /// `key` as Org reads it from `task`, inheriting, with where each part
+    /// came from: the task's own drawer, then the ancestor outlines (for an
     /// inline task, its enclosing outline first), then the file's property
-    /// drawer, then `#+PROPERTY:` lines. Values are inherited only from
-    /// outlines, never from another inline task.
+    /// drawer, then `#+PROPERTY:` lines, walking out until a level sets it
+    /// rather than adding to it with `KEY+`, as `org-entry-get` with
+    /// inheritance does. Values are inherited only from outlines, never from
+    /// another inline task.
     ///
     /// The file's `#+PROPERTY:` lines are read from the tree on each call;
     /// to ask about many headlines, ask [`Document::declarations`] instead.
+    ///
+    /// ```
+    /// use orgcst::{parse, Task};
+    ///
+    /// let doc = parse("#+PROPERTY: var a=1\n* Plan\n:PROPERTIES:\n:var+: b=2\n:END:\n");
+    /// let plan = doc.outlines().next().expect("one heading");
+    /// let var = doc.property_inherited(Task::from(plan), "var").expect("written");
+    /// assert_eq!(var.value(), "a=1 b=2");
+    /// assert_eq!(var.parts().len(), 2);
+    /// ```
     #[must_use]
     pub fn property_inherited(
         &self,
         task: impl Into<Task>,
         key: &str,
-    ) -> Option<(Property, PropertyOrigin)> {
-        property_chain(&task.into(), key).or_else(|| {
-            file_property(
-                lead_in_file_drawer(self),
-                file_keyword_properties(self.root())
-                    .into_iter()
-                    .map(property_from_raw),
-                key,
-            )
-        })
+    ) -> Option<InheritedProperty> {
+        inherited(
+            Some(&task.into()),
+            lead_in_file_drawer(self),
+            file_keyword_properties(self.root())
+                .into_iter()
+                .map(property_from_raw),
+            key,
+        )
+    }
+
+    /// `key` as Org reads it before the first heading: the file's property
+    /// drawer, then its `#+PROPERTY:` lines, as
+    /// [`Self::property_inherited`] ends.
+    #[must_use]
+    pub fn file_property_inherited(&self, key: &str) -> Option<InheritedProperty> {
+        inherited(
+            None,
+            lead_in_file_drawer(self),
+            file_keyword_properties(self.root())
+                .into_iter()
+                .map(property_from_raw),
+            key,
+        )
     }
 }
 
@@ -319,8 +345,7 @@ mod tests {
         let b = a.children().next().unwrap();
         assert_eq!(doc.property(&b, "FOO").map(|p| p.value().to_string()), None);
         assert_eq!(
-            doc.property_inherited(&b, "FOO")
-                .map(|(p, _)| p.value().to_string()),
+            doc.property_inherited(&b, "FOO").map(|i| i.value()),
             Some("a".into())
         );
         assert_eq!(
@@ -329,7 +354,7 @@ mod tests {
         );
         let inherited = doc.property_inherited(&b, "FOO").unwrap();
         assert!(
-            matches!(inherited.1, PropertyOrigin::Inherited { from } if from.syntax() == a.syntax())
+            matches!(&inherited.nearest().1, PropertyOrigin::Inherited { from } if from.syntax() == a.syntax())
         );
     }
 
@@ -354,14 +379,14 @@ mod tests {
             None
         );
         let inherited = doc.property_inherited(&task, "FOO").unwrap();
-        assert_eq!(inherited.0.value(), "from-parent");
+        assert_eq!(inherited.nearest().0.value(), "from-parent");
         assert!(matches!(
-            inherited.1,
+            &inherited.nearest().1,
             PropertyOrigin::Inherited { from } if from.syntax() == parent.syntax()
         ));
         let local = doc.property_inherited(&task, "BAR").unwrap();
-        assert_eq!(local.0.value(), "from-task");
-        assert!(matches!(local.1, PropertyOrigin::Local));
+        assert_eq!(local.nearest().0.value(), "from-task");
+        assert!(matches!(local.nearest().1, PropertyOrigin::Local));
 
         let no_drawer = parse(
             "* Parent\n:PROPERTIES:\n:FOO: from-parent\n:END:\n*************** T\n*************** END\n",
@@ -376,9 +401,9 @@ mod tests {
         .unwrap();
         assert!(no_drawer.property(&task, "FOO").is_none());
         let inherited = no_drawer.property_inherited(&task, "FOO").unwrap();
-        assert_eq!(inherited.0.value(), "from-parent");
+        assert_eq!(inherited.nearest().0.value(), "from-parent");
         assert!(matches!(
-            inherited.1,
+            &inherited.nearest().1,
             PropertyOrigin::Inherited { from } if from.syntax() == parent.syntax()
         ));
     }
@@ -392,9 +417,9 @@ mod tests {
         let c = b.children().next().unwrap();
         assert!(doc.property(&c, "FOO").is_none());
         let inherited = doc.property_inherited(&c, "FOO").unwrap();
-        assert_eq!(inherited.0.value(), "from-a");
+        assert_eq!(inherited.nearest().0.value(), "from-a");
         assert!(matches!(
-            inherited.1,
+            &inherited.nearest().1,
             PropertyOrigin::Inherited { from } if from.syntax() == a.syntax()
         ));
 
@@ -410,9 +435,9 @@ mod tests {
         .unwrap();
         assert!(doc.property(&task, "FOO").is_none());
         let inherited = doc.property_inherited(&task, "FOO").unwrap();
-        assert_eq!(inherited.0.value(), "from-a");
+        assert_eq!(inherited.nearest().0.value(), "from-a");
         assert!(matches!(
-            inherited.1,
+            &inherited.nearest().1,
             PropertyOrigin::Inherited { from } if from.syntax() == a.syntax()
         ));
     }
@@ -475,5 +500,67 @@ mod tests {
 
         let mid = parse("para\n:PROPERTIES:\n:ID: no\n:END:\n");
         assert!(mid.file_properties().next().is_none());
+    }
+
+    #[test]
+    fn a_plus_adds_to_the_value_above_it_across_levels() {
+        let src = concat!(
+            "#+PROPERTY: var a=1\n",
+            "* P\n:PROPERTIES:\n:var+: b=2\n:END:\n",
+            "** C\n:PROPERTIES:\n:var+: c=3\n:END:\n",
+        );
+        let doc = parse(src);
+        let c = doc.outlines().nth(1).expect("two outlines");
+        let var = doc.property_inherited(&c, "var").expect("written");
+        assert_eq!(var.value(), "a=1 b=2 c=3");
+        let origins: Vec<_> = var
+            .parts()
+            .iter()
+            .map(|(_, o)| std::mem::discriminant(o))
+            .collect();
+        assert_eq!(
+            origins,
+            [
+                std::mem::discriminant(&PropertyOrigin::Local),
+                std::mem::discriminant(&var.parts()[1].1),
+                std::mem::discriminant(&PropertyOrigin::FileKeyword),
+            ]
+        );
+        assert!(matches!(var.parts()[1].1, PropertyOrigin::Inherited { .. }));
+        assert_eq!(
+            doc.declarations()
+                .property_inherited(c.clone(), "var")
+                .map(|i| i.value()),
+            Some("a=1 b=2 c=3".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_nearest_level_that_sets_a_property_ends_the_walk() {
+        let src = concat!(
+            "#+PROPERTY: K x\n",
+            "* P\n:PROPERTIES:\n:K: y\n:END:\n",
+            "** C\n:PROPERTIES:\n:K+: z\n:END:\n",
+            "** D\n:PROPERTIES:\n:K: w\n:END:\n",
+        );
+        let doc = parse(src);
+        let mut outlines = doc.outlines().skip(1);
+        let c = outlines.next().expect("C");
+        let d = outlines.next().expect("D");
+        let k = doc.property_inherited(&c, "K").expect("written");
+        assert_eq!(k.value(), "y z");
+        assert_eq!(k.parts().len(), 2);
+        let k = doc.property_inherited(&d, "K").expect("written");
+        assert_eq!(k.value(), "w");
+        assert_eq!(k.parts().len(), 1);
+    }
+
+    #[test]
+    fn before_the_first_heading_the_file_level_answers() {
+        let doc = parse(":PROPERTIES:\n:K+: b\n:END:\n#+PROPERTY: K a\npara\n");
+        let k = doc.file_property_inherited("K").expect("written");
+        assert_eq!(k.value(), "a b");
+        assert!(matches!(k.nearest().1, PropertyOrigin::FileDrawer));
+        assert!(doc.file_property_inherited("NONE").is_none());
     }
 }

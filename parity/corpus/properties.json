@@ -1,0 +1,12 @@
+[
+  {"org": "#+PROPERTY: var a=1\n* One\n:PROPERTIES:\n:var+: b=2\n:END:\n** Two\n:PROPERTIES:\n:var+: c=3\n:END:\n", "heading": 1, "key": "var", "emacs": "a=1 b=2 c=3"},
+  {"org": "#+PROPERTY: var a=1\n* One\n:PROPERTIES:\n:var+: b=2\n:END:\n** Two\n:PROPERTIES:\n:var+: c=3\n:END:\n", "heading": 0, "key": "var", "emacs": "a=1 b=2"},
+  {"org": "#+PROPERTY: K x\n* P\n:PROPERTIES:\n:K: y\n:END:\n** C\n:PROPERTIES:\n:K+: z\n:END:\n", "heading": 1, "key": "K", "emacs": "y z"},
+  {"org": "#+PROPERTY: header-args :dir /srv\n* Deploy\n:PROPERTIES:\n:header-args: :results output\n:END:\n", "heading": 0, "key": "header-args", "emacs": ":results output"},
+  {"org": "#+PROPERTY: header-args :dir /srv\n* Deploy\n:PROPERTIES:\n:header-args+: :results output\n:END:\n", "heading": 0, "key": "header-args", "emacs": ":dir /srv :results output"},
+  {"org": ":PROPERTIES:\n:K+: b\n:END:\n#+PROPERTY: K a\npara\n", "heading": null, "key": "K", "emacs": "a b"},
+  {"org": ":PROPERTIES:\n:K: f\n:END:\n* H\n", "heading": 0, "key": "K", "emacs": "f"},
+  {"org": "* H\n", "heading": 0, "key": "K", "emacs": null},
+  {"org": "#+CATEGORY: first\n* One\n#+CATEGORY: second\n* Two\n", "heading": 0, "key": "CATEGORY", "emacs": "second"},
+  {"org": "#+CATEGORY: first\n* One\n#+CATEGORY: second\n* Two\n", "heading": 1, "key": "CATEGORY", "emacs": "second"}
+]

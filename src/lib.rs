@@ -98,23 +98,23 @@ pub use ast::{
     CitationReference, CitationReferencePart, ClassifiedLink, Clock, ClockPart, Comment, Container,
     ContextFrame, CookieShape, CookieValue, Counter, CounterForm, Covering, Declarations,
     DeclaredTags, Delay, DelayKind, DiarySexp, Drawer, DrawerPart, EditContext, Element,
-    ElementView, Emphasis, Entity, EntryFact, EntryFactValue, EntryFacts, ExportSnippet,
-    ExportSnippetPart, FixedWidth, Footnote, FootnoteDefinition, FootnotePart, FootnoteReference,
-    FootnoteReferencePart, FootnoteShape, HasElements, HasObjects, HasParts, HeaderArgsOrigin,
-    Heading, HeadingPart, HeadingTitle, Headline, HorizontalRule, InlineBabelCall,
-    InlineBabelCallPart, InlineFootnote, InlineSrcBlock, InlineSrcPart, InlineTask, InsertPoint,
-    InternalAddress, Item, ItemPart, ItemTag, Keyword, KeywordDual, KeywordPart, KeywordRole,
-    KeywordValue, LatexEnvironment, LatexEnvironmentPart, LatexFragment, LatexFragmentShape,
-    LineBreak, Link, LinkAbbrev, LinkDescription, LinkPart, LinkSearch, LinkShape, LinkTarget,
-    ListKind, Macro, MacroDef, Markup, MarkupBody, MarkupKind, MarkupPart, NodeProperty, Object,
-    Outline, Padding, Paragraph, PartSpan, PlainList, Planning, PlanningPart, PortableDocument,
-    PresentPart, Priority, Property, PropertyDrawer, PropertyOrigin, PropertyPart, RadioLink,
-    RadioTarget, Repeater, RepeaterKind, RepeaterUnit, ScriptPart, Section, SplitPoint,
-    StatisticsCookie, Subscript, Superscript, Table, TableCell, TableKind, TableRow, Tag, TagGroup,
-    TagGroupKind, TagOrigin, Tags, Target, Task, Timestamp, TimestampDelimiters, TimestampField,
-    TimestampPart, TimestampPoint, TimestampShape, TodoKeyword, ValueWord, VerseBody,
-    classify_link, escape_code, escape_link_path, file_link_path, normalize_angle_link_ws,
-    normalize_bracket_link_ws, separation_after, unescape_code, unescape_link_path,
+    ElementView, Emphasis, Entity, EntryFacts, ExportSnippet, ExportSnippetPart, FixedWidth,
+    Footnote, FootnoteDefinition, FootnotePart, FootnoteReference, FootnoteReferencePart,
+    FootnoteShape, HasElements, HasObjects, HasParts, Heading, HeadingPart, HeadingTitle, Headline,
+    HorizontalRule, InheritedProperty, InlineBabelCall, InlineBabelCallPart, InlineFootnote,
+    InlineSrcBlock, InlineSrcPart, InlineTask, InsertPoint, Item, ItemPart, ItemTag, Keyword,
+    KeywordDual, KeywordPart, KeywordRole, KeywordValue, LatexEnvironment, LatexEnvironmentPart,
+    LatexFragment, LatexFragmentShape, LineBreak, Link, LinkAbbrev, LinkDescription, LinkPart,
+    LinkSearch, LinkShape, LinkTarget, ListKind, Macro, MacroDef, Markup, MarkupBody, MarkupKind,
+    MarkupPart, NodeProperty, Object, Outline, Padding, Paragraph, PartSpan, PlainList, Planning,
+    PlanningPart, PortableDocument, PresentPart, Priority, Property, PropertyDrawer,
+    PropertyOrigin, PropertyPart, RadioLink, RadioTarget, Repeater, RepeaterKind, RepeaterUnit,
+    ScriptPart, Section, SplitPoint, StatisticsCookie, Subscript, Superscript, Table, TableCell,
+    TableKind, TableRow, Tag, TagGroup, TagGroupKind, TagOrigin, Tags, Target, Task, Timestamp,
+    TimestampDelimiters, TimestampField, TimestampPart, TimestampPoint, TimestampShape,
+    TodoKeyword, ValueWord, VerseBody, classify_link, escape_code, escape_link_path,
+    file_link_path, normalize_angle_link_ws, normalize_bracket_link_ws, separation_after,
+    unescape_code, unescape_link_path,
 };
 pub use document::Document;
 pub use edit::{Anchor, Bias, Edit, EditSet, EditSetError};
@@ -132,8 +132,9 @@ pub use parser::{
 pub use rowan::{TextRange, TextSize};
 pub use syntax::{OrgLanguage, OrgSyntaxKind, SyntaxElement, SyntaxNode, SyntaxToken};
 pub use writer::{
-    ArgumentProblem, TimestampProblem, TitleProblem, arguments, is_valid_property_key,
-    is_valid_tag_name, set_argument, tag_group, timestamp, title_is_writable, title_problem,
+    ArgumentProblem, TimestampProblem, TitleProblem, argument_words, arguments,
+    is_valid_property_key, is_valid_tag_name, set_argument, tag_group, timestamp,
+    title_is_writable, title_problem, variables,
 };
 
 use std::sync::Arc;

@@ -503,6 +503,25 @@ pub enum Operation {
         /// The rest of the begin line, as written.
         data: String,
     },
+    /// Set, add or remove an element's affiliated keyword `key` (`NAME`,
+    /// `CAPTION`, `HEADER`, `ATTR_<BACKEND>` or another Org affiliates), its
+    /// synonyms matched as Org matches them (`#+TBLNAME:` is a `NAME`). With
+    /// a value, the last such line takes it, or a new line is written as the
+    /// element's last affiliated keyword; with `None`, every such line goes.
+    ///
+    /// [`OperationError::WrongKind`] when `target` is not an element that
+    /// takes affiliated keywords; [`OperationError::InvalidKeyword`] for a
+    /// key that is empty or holds whitespace or a colon, or a value with a
+    /// line break; [`OperationError::NotAllowedHere`] when the line would not
+    /// read back as the element's (a key Org does not affiliate).
+    SetAffiliated {
+        /// The element.
+        target: NodeRef,
+        /// The keyword's key, as written (`NAME`).
+        key: String,
+        /// The value, or `None` to remove the keyword.
+        value: Option<String>,
+    },
     /// Set, change or remove the argument `key` of an element's
     /// `#+ATTR_<BACKEND>:` line, in the `:key value` notation
     /// ([`set_argument`](crate::set_argument)). The last such line the element
@@ -849,6 +868,9 @@ pub fn compile(doc: &Document, op: &Operation) -> Result<EditSet, OperationError
             key,
             value,
         } => element::compile_set_attribute(doc, *target, backend, key, value.as_deref()),
+        Operation::SetAffiliated { target, key, value } => {
+            element::compile_set_affiliated(doc, *target, key, value.as_deref())
+        }
         Operation::SplitHeading { target, at } => {
             restructure::compile_split_heading(doc, *target, *at)
         }
@@ -1278,7 +1300,7 @@ pub(crate) fn assert_envelope(doc: &Document, op: &Operation, set: &EditSet) {
             let node = target.resolve(doc).expect("live block");
             assert_edits_within(set, node.text_range());
         }
-        Operation::SetAttribute { target, .. } => {
+        Operation::SetAttribute { target, .. } | Operation::SetAffiliated { target, .. } => {
             let node = target.resolve(doc).expect("live element");
             let element = crate::ast::Element::cast(node).expect("an element");
             assert_edits_within(set, crate::ast::ElementView::full_range(&element));

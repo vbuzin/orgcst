@@ -40,9 +40,8 @@ pub(crate) use support::{token_at_caret, token_owning_byte};
 
 pub use context::{ContextFrame, EditContext};
 pub use document::{
-    Declarations, DeclaredTags, EntryFact, EntryFactValue, EntryFacts, Footnote, HeaderArgsOrigin,
-    InternalAddress, LinkAbbrev, MacroDef, Property, PropertyOrigin, RadioLink, TagGroup,
-    TagGroupKind,
+    Declarations, DeclaredTags, EntryFacts, Footnote, InheritedProperty, LinkAbbrev, MacroDef,
+    Property, PropertyOrigin, RadioLink, TagGroup, TagGroupKind,
 };
 pub use portable::PortableDocument;
 pub use views::{

@@ -16,6 +16,7 @@ for arg in "$@"; do
         --record-version) record=1 ;;
         --verbose) verbose=1 ;;
         priorities) mode=priorities ;;
+        properties) mode=properties ;;
         syntax-probe) mode=syntax-probe ;;
         *)
             printf 'unknown argument: %s\n' "$arg" >&2
@@ -66,6 +67,14 @@ if [ "$record" -eq 1 ]; then
     run_emacs "$(rel "$TMP/version.org")" "$(rel "$TMP/version.sidecar.json")" \
         > "$TMP/version.json"
     "$BIN" record-version --emacs "$TMP/version.json" --out "$PIN"
+fi
+
+if [ "$mode" = "properties" ]; then
+    run_emacs --properties /work/parity/corpus/properties.json > "$TMP/properties.json"
+    exec "$BIN" properties \
+        --emacs "$TMP/properties.json" \
+        --table "$ROOT/parity/corpus/properties.json" \
+        --pin "$PIN"
 fi
 
 if [ "$mode" = "priorities" ]; then

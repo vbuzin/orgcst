@@ -4,8 +4,8 @@
 use super::{region_hits, source_slice};
 use crate::ast::{
     AstNode, Clock, Drawer, Element, ElementView, FootnoteDefinition, FootnotePart,
-    FootnoteReference, HasParts, Heading, HeadingPart, Keyword, Link, Object, Outline, PlainList,
-    RadioTarget, Table, Target, Task, Timestamp,
+    FootnoteReference, HasParts, Heading, Keyword, Link, Object, Outline, PlainList, RadioTarget,
+    Table, Target, Task, Timestamp,
 };
 use crate::syntax::{OrgSyntaxKind, SyntaxNode, restrictions};
 use crate::{Document, TextRange, TextSize};
@@ -30,50 +30,6 @@ impl RadioLink {
     pub fn target(&self) -> &RadioTarget {
         &self.target
     }
-}
-
-/// How an internal link could point at a position: the answer of
-/// [`Document::address_at`].
-///
-/// Building one allocates. This crate does not resolve fuzzy links back to
-/// positions.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum InternalAddress {
-    /// A `<<target>>` around the position.
-    Target {
-        /// Text between `<<` and `>>`.
-        name: String,
-        /// Range of the whole target.
-        range: TextRange,
-    },
-    /// An element with a `#+NAME:`.
-    Named {
-        /// The `#+NAME:` value.
-        name: String,
-        /// The named element.
-        element: Element,
-    },
-    /// An outline with a `CUSTOM_ID` property, for `[[#id]]`.
-    CustomId {
-        /// The `CUSTOM_ID` value.
-        id: String,
-        /// The outline with that property.
-        outline: Outline,
-    },
-    /// An outline with an `ID` property, for `[[id:...]]`.
-    Id {
-        /// The `ID` value.
-        id: String,
-        /// The outline with that property.
-        outline: Outline,
-    },
-    /// An outline reached by its title, for `[[*Title]]` or `[[Title]]`.
-    FuzzyTitle {
-        /// The heading's title text.
-        title: String,
-        /// The outline with that title.
-        outline: Outline,
-    },
 }
 
 /// A footnote label's definition and the references that use it.
@@ -286,51 +242,6 @@ impl Document {
             references,
         }
     }
-
-    /// How an internal link could point at `offset`, preferring the most
-    /// specific address.
-    ///
-    /// The order is an enclosing `<<target>>`, then the `#+NAME:` of the
-    /// enclosing element, then the enclosing outline's `CUSTOM_ID`, its `ID`,
-    /// and its title when not empty. Inside an inline task the result is
-    /// `None` unless a target or name applies.
-    #[must_use]
-    pub fn address_at(&self, offset: TextSize) -> Option<InternalAddress> {
-        if let Some(target) = self.node_at::<Target>(offset) {
-            return Some(InternalAddress::Target {
-                name: target.name(),
-                range: target.range(),
-            });
-        }
-        if let Some(el) = self.element_at(offset)
-            && let Some(kw) = el.affiliated().and_then(|run| run.names().next())
-        {
-            let name = source_slice(self.source(), kw.value().content_range()).to_string();
-            return Some(InternalAddress::Named { name, element: el });
-        }
-        let task = self.node_at::<Task>(offset)?;
-        let outline = task.as_outline()?;
-        if let Some(p) = self.property(&outline, "CUSTOM_ID") {
-            return Some(InternalAddress::CustomId {
-                id: p.value().to_string(),
-                outline,
-            });
-        }
-        if let Some(p) = self.property(&outline, "ID") {
-            return Some(InternalAddress::Id {
-                id: p.value().to_string(),
-                outline,
-            });
-        }
-        let title = outline
-            .heading()
-            .part_content_range(HeadingPart::Title)
-            .map_or_default(|r| source_slice(self.source(), r).to_string());
-        if title.is_empty() {
-            return None;
-        }
-        Some(InternalAddress::FuzzyTitle { title, outline })
-    }
 }
 
 fn is_object_position(obj: &Object) -> bool {
@@ -446,7 +357,7 @@ fn match_key(src: &str, at: usize, end: usize, key: &[char]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{at, span};
+    use super::super::span;
     use super::*;
     use crate::ast::nav;
     use crate::ast::*;
@@ -644,74 +555,16 @@ mod tests {
         assert_eq!(fn_.references().len(), 1);
         assert!(doc.footnote("missing").definition().is_none());
         assert!(doc.footnote("LAB").definition().is_none());
-
-        let tgt = at(src, "tgt");
-        assert!(matches!(
-            doc.address_at(tgt),
-            Some(InternalAddress::Target { .. })
-        ));
-        let named = at(src, "para");
-        assert!(matches!(
-            doc.address_at(named),
-            Some(InternalAddress::Named { .. })
-        ));
-        let h = doc.by_id("abc").unwrap();
-        let in_title = h.heading().range().start() + TextSize::from(2);
-        assert!(matches!(
-            doc.address_at(in_title),
-            Some(InternalAddress::CustomId { .. })
-        ));
-        let empty = parse("* \n");
-        let o = empty.root_outlines().next().unwrap();
-        let off = o.heading().range().start() + TextSize::from(2);
-        assert!(empty.address_at(off).is_none());
-        let zero = parse("just text\n");
-        assert!(zero.address_at(TextSize::from(0)).is_none());
     }
 
     #[test]
-    fn identity_duplicate_id_fold_and_inline_task() {
+    fn identity_duplicate_id_finds_the_first() {
         let src = "* A\n:PROPERTIES:\n:ID: same\n:END:\n* B\n:PROPERTIES:\n:ID: same\n:END:\n";
         let doc = parse(src);
         let a = doc.root_outlines().next().unwrap();
         assert_eq!(
             doc.by_id("same").as_ref().map(Outline::syntax),
             Some(a.syntax())
-        );
-
-        let id_only = parse("* OnlyId\n:PROPERTIES:\n:ID: xyz\n:END:\n");
-        let h = id_only.root_outlines().next().unwrap();
-        let off = h.heading().range().start() + TextSize::from(2);
-        match id_only.address_at(off) {
-            Some(InternalAddress::Id { id, outline }) => {
-                assert_eq!(id, "xyz");
-                assert_eq!(outline.syntax(), h.syntax());
-            }
-            other => panic!("{other:?}"),
-        }
-
-        let fuzzy = parse("* Fuzzy Title\n");
-        let h = fuzzy.root_outlines().next().unwrap();
-        let off = h.heading().range().start() + TextSize::from(2);
-        match fuzzy.address_at(off) {
-            Some(InternalAddress::FuzzyTitle { title, outline }) => {
-                assert!(title.contains("Fuzzy"));
-                assert_eq!(outline.syntax(), h.syntax());
-            }
-            other => panic!("{other:?}"),
-        }
-
-        let src = "* H\n:PROPERTIES:\n:CUSTOM_ID: cust\n:END:\n*************** T\n:PROPERTIES:\n:ID: inline\n:END:\n*************** END\n";
-        let doc = parse(src);
-        let task = nodes_of_kind(doc.root(), OrgSyntaxKind::INLINE_TASK)
-            .into_iter()
-            .next()
-            .unwrap();
-        let interior = task.text_range().start() + TextSize::from(16);
-        assert!(
-            doc.address_at(interior).is_none(),
-            "{:?}",
-            doc.address_at(interior)
         );
     }
 

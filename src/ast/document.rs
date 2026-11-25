@@ -17,8 +17,8 @@ mod joins;
 mod queries;
 
 pub use declarations::Declarations;
-pub use discovery::{Footnote, InternalAddress, RadioLink};
-pub use facts::{EntryFact, EntryFactValue, EntryFacts, HeaderArgsOrigin, LinkAbbrev, MacroDef};
+pub use discovery::{Footnote, RadioLink};
+pub use facts::{EntryFacts, LinkAbbrev, MacroDef};
 
 #[cfg(test)]
 use crate::TextSize;
@@ -77,7 +77,58 @@ impl Property {
     }
 }
 
-/// Where a property in [`Document::property_inherited`] / [`Document::file_properties`]
+/// A property as Org reads it from a heading, inheriting: the levels it is
+/// written at, nearest first, ending at the first that sets it outright.
+/// Every level but that last one only adds to it (`KEY+`). From
+/// [`Document::property_inherited`] and [`Document::file_property_inherited`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InheritedProperty {
+    parts: Vec<(Property, PropertyOrigin)>,
+}
+
+impl InheritedProperty {
+    pub(crate) fn from_parts(parts: Vec<(Property, PropertyOrigin)>) -> Self {
+        Self { parts }
+    }
+
+    /// The levels that give the value, nearest first, each its own value
+    /// after merging that level's `KEY+` lines.
+    #[must_use]
+    pub fn parts(&self) -> &[(Property, PropertyOrigin)] {
+        &self.parts
+    }
+
+    /// The nearest level that writes the property.
+    ///
+    /// # Panics
+    ///
+    /// Never: an inherited property has at least one part.
+    #[must_use]
+    pub fn nearest(&self) -> &(Property, PropertyOrigin) {
+        self.parts
+            .first()
+            .expect("an inherited property is built from at least one part")
+    }
+
+    /// The value Org reads: each level's value from the outermost in,
+    /// joined by a space, as `KEY+` adds to the value above it.
+    #[must_use]
+    pub fn value(&self) -> String {
+        let mut out = String::new();
+        for (p, _) in self.parts.iter().rev() {
+            if p.value().is_empty() {
+                continue;
+            }
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(p.value());
+        }
+        out
+    }
+}
+
+/// Where a property in [`InheritedProperty`] / [`Document::file_properties`]
 /// came from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PropertyOrigin {

@@ -28,7 +28,11 @@ For grammar changes, also run the parity harness if you can (it needs Docker):
 parity/parity.sh
 ```
 
-It parses the corpus under `parity/corpus/` with this crate and with
+`parity/parity.sh properties` checks inherited properties and
+`#+CATEGORY:` against `org-entry-get` (`parity/corpus/properties.json`), and
+`parity/parity.sh priorities` checks `#+PRIORITIES:` the same way.
+
+The default run parses the corpus under `parity/corpus/` with this crate and with
 `org-element` from a pinned Org commit, and diffs the two. Known differences
 are listed in `parity/exceptions.json`, each with a fixture under
 `parity/corpus/diverge/`.
@@ -80,7 +84,9 @@ so an addition must be right for all of them, not convenient for one.
   Org's manual or source, and says nothing of any caller's use.
 
 A change that adds to the API says in its pull request which of these it was
-checked against.
+checked against. A change to these rules, or to the scope in
+ARCHITECTURE.md, comes with an audit of the whole public API against the new
+rule, and what fails it is moved out or removed in the same release.
 
 ## Fuzzing
 
