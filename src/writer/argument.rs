@@ -16,6 +16,27 @@ pub enum ArgumentProblem {
     InvalidValue,
 }
 
+/// The arguments of a `:key value` list, in order, each key without its
+/// colon and each value with its quotes and backslashes undone; a key with
+/// no value has an empty one. A key is a run after a colon that starts the
+/// list or follows whitespace, and a value runs to the next such colon or
+/// is one quoted string.
+///
+/// ```
+/// use orgcst::arguments;
+///
+/// assert_eq!(arguments(r#"python :results output :file "a b""#),
+///            [("results".to_owned(), "output".to_owned()),
+///             ("file".to_owned(), "a b".to_owned())]);
+/// ```
+#[must_use]
+pub fn arguments(list: &str) -> Vec<(String, String)> {
+    babel_arguments(list)
+        .into_iter()
+        .map(|a| (list[a.key.clone()].to_owned(), a.value))
+        .collect()
+}
+
 /// `arguments` with the argument `key` set to `value`, or removed when
 /// `value` is `None`.
 ///
