@@ -50,54 +50,95 @@ pub fn argument_words(value: &str) -> Vec<&str> {
     value.split_whitespace().collect()
 }
 
-/// The assignments of a `:var` argument's value, each a name and the value
-/// as written, split as Babel splits them: at commas outside brackets and
-/// quotes, the name before the first `=`, both trimmed. An assignment with
-/// no `=` has an empty value.
+/// The assignments of a `:var` argument's value, each a name and its value
+/// as written, split as Babel splits them (`org-babel-parse-multiple-vars`):
+/// at spaces outside balanced brackets, parentheses and double quotes,
+/// pieces either side of an `=` joined again, the name before the first
+/// `=`. Babel keeps a comma that ends an assignment as part of its value.
+/// An assignment with no `=` has an empty value.
 ///
 /// ```
 /// use orgcst::variables;
 ///
-/// assert_eq!(variables("x=1, rows=table[1,2]"),
+/// assert_eq!(variables("x=1 rows=table[1, 2] s=\"a b\""),
 ///            [("x".to_owned(), "1".to_owned()),
-///             ("rows".to_owned(), "table[1,2]".to_owned())]);
-/// assert_eq!(variables(r#"s="a, b""#), [("s".to_owned(), r#""a, b""#.to_owned())]);
+///             ("rows".to_owned(), "table[1, 2]".to_owned()),
+///             ("s".to_owned(), "\"a b\"".to_owned())]);
+/// assert_eq!(variables("x = 1"), [("x".to_owned(), "1".to_owned())]);
 /// ```
 #[must_use]
 pub fn variables(value: &str) -> Vec<(String, String)> {
-    let mut parts = Vec::new();
-    let (mut depth, mut quoted, mut escaped, mut start) = (0usize, false, false, 0usize);
-    for (i, c) in value.char_indices() {
-        if quoted {
-            match c {
-                _ if escaped => escaped = false,
-                '\\' => escaped = true,
-                '"' => quoted = false,
-                _ => {}
-            }
-            continue;
+    let mut joined: Vec<String> = Vec::new();
+    for piece in balanced_pieces(value) {
+        match joined.last_mut() {
+            Some(last) if last.ends_with('=') || piece.starts_with('=') => last.push_str(piece),
+            _ => joined.push(piece.to_owned()),
         }
-        match c {
-            '"' => quoted = true,
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth = depth.saturating_sub(1),
-            ',' if depth == 0 => {
-                parts.push(&value[start..i]);
+    }
+    joined
+        .iter()
+        .map(|p| match p.trim().split_once('=') {
+            Some((name, v)) => (name.trim().to_owned(), v.trim().to_owned()),
+            None => (p.trim().to_owned(), String::new()),
+        })
+        .collect()
+}
+
+/// `value` split at spaces outside balanced brackets, parentheses and
+/// double quotes, as `org-babel-balanced-split` splits on a space; an
+/// opening that never closes is an ordinary character.
+fn balanced_pieces(value: &str) -> Vec<&str> {
+    let bytes = value.as_bytes();
+    let mut pieces = Vec::new();
+    let (mut start, mut i) = (0, 0);
+    while i < bytes.len() {
+        match bytes[i] {
+            b' ' => {
+                if start < i {
+                    pieces.push(&value[start..i]);
+                }
                 start = i + 1;
+                i += 1;
+            }
+            b'(' | b'[' => i = balanced_end(bytes, i).unwrap_or(i + 1),
+            b'"' if i == 0 || bytes[i - 1] != b'\\' => {
+                i = closing_quote(bytes, i).map_or(i + 1, |end| end + 1);
+            }
+            _ => i += 1,
+        }
+    }
+    if start < bytes.len() {
+        pieces.push(&value[start..]);
+    }
+    pieces
+}
+
+/// Just past the bracket or parenthesis that closes the one at `open`.
+fn balanced_end(bytes: &[u8], open: usize) -> Option<usize> {
+    let mut stack = vec![bytes[open]];
+    let mut i = open + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            c @ (b'(' | b'[') => stack.push(c),
+            b']' if stack.last() == Some(&b'[') => {
+                stack.pop();
+            }
+            b')' if stack.last() == Some(&b'(') => {
+                stack.pop();
             }
             _ => {}
         }
+        i += 1;
+        if stack.is_empty() {
+            return Some(i);
+        }
     }
-    parts.push(&value[start..]);
-    parts
-        .into_iter()
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-        .map(|p| match p.split_once('=') {
-            Some((name, v)) => (name.trim().to_owned(), v.trim().to_owned()),
-            None => (p.to_owned(), String::new()),
-        })
-        .collect()
+    None
+}
+
+/// The double quote that closes the one at `open`, not after a backslash.
+fn closing_quote(bytes: &[u8], open: usize) -> Option<usize> {
+    (open + 1..bytes.len()).find(|&i| bytes[i] == b'"' && bytes[i - 1] != b'\\')
 }
 
 /// `arguments` with the argument `key` set to `value`, or removed when
@@ -259,5 +300,20 @@ mod tests {
             set_argument("", "a", Some(r#"say "hi" there"#)),
             Err(ArgumentProblem::InvalidValue)
         );
+    }
+
+    #[test]
+    fn variables_split_as_babel_splits_them() {
+        let v = |s: &str| variables(s);
+        let pair = |n: &str, x: &str| (n.to_owned(), x.to_owned());
+        // Babel keeps the comma of `foo=1, bar=2` in the first value.
+        assert_eq!(v("x=1, y=2"), [pair("x", "1,"), pair("y", "2")]);
+        assert_eq!(v("x=1,y=2"), [pair("x", "1,y=2")]);
+        assert_eq!(
+            v("t=f(a=1, b=2) u"),
+            [pair("t", "f(a=1, b=2)"), pair("u", "")]
+        );
+        assert_eq!(v("x= (1"), [pair("x", "(1")]);
+        assert_eq!(v(""), []);
     }
 }
