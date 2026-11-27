@@ -388,9 +388,15 @@ impl AffiliatedKeywords {
     /// The last `ATTR_<backend>` member, matching `backend` ASCII caseless.
     #[must_use]
     pub fn attr(&self, backend: &str) -> Option<Keyword> {
+        self.attrs_of(backend).last()
+    }
+
+    /// Every `ATTR_<backend>` member, matching `backend` ASCII caseless, in
+    /// source order: an element may carry several lines for one backend,
+    /// whose arguments Org reads as one list.
+    pub fn attrs_of<'a>(&'a self, backend: &'a str) -> impl Iterator<Item = Keyword> + 'a {
         self.keywords()
-            .filter(|kw| keyword_attr_backend_eq(kw, backend))
-            .last()
+            .filter(move |kw| keyword_attr_backend_eq(kw, backend))
     }
 }
 

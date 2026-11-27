@@ -27,6 +27,11 @@ is what Org does with a value, not its syntax.
 
 ### Changed
 
+- `Operation::SetAttribute` leaves a key one value when an element has
+  several `#+ATTR_<backend>:` lines: it is written on the last line and
+  taken out of the earlier ones, a line left empty removed; clearing it
+  takes it out of every line.
+
 - `Document::property_inherited` and `Declarations::property_inherited`
   return an `InheritedProperty`: every level that gives a part, nearest
   first, with its origin, and the value they fold to. A `KEY+` adds to the
@@ -34,6 +39,9 @@ is what Org does with a value, not its syntax.
   stopped at the nearest level before.
 
 ### Added
+
+- `Affiliated::attrs_of(backend)`: every `#+ATTR_<backend>:` line of an
+  element, in source order; Org reads their arguments as one list.
 
 - `Operation::RemoveKeyword`: a keyword line taken out whole, the blank
   lines after it kept.

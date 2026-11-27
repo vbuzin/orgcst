@@ -788,17 +788,46 @@ pub(super) fn compile_set_attribute(
     {
         return Err(OperationError::InvalidKeyword);
     }
-    let line = element.affiliated().and_then(|run| run.attr(backend));
+    let lines: Vec<Keyword> = element
+        .affiliated()
+        .map_or_default(|run| run.attrs_of(backend).collect());
+    let line = lines.last().cloned();
     let old = line
         .as_ref()
         .map_or("", |kw| doc.slice(kw.value().content_range()));
     let new =
         crate::writer::set_argument(old, key, value).map_err(|_| OperationError::InvalidText)?;
-    if new == old {
+    // The key leaves every earlier line, so it has one value: the last
+    // line's, where it is written.
+    let mut earlier = Vec::new();
+    for kw in lines.iter().take(lines.len().saturating_sub(1)) {
+        let was = doc.slice(kw.value().content_range());
+        let now =
+            crate::writer::set_argument(was, key, None).map_err(|_| OperationError::InvalidText)?;
+        if now == was {
+            continue;
+        }
+        earlier.push(if now.trim().is_empty() {
+            line_removal(doc.source(), kw)
+        } else {
+            Edit {
+                range: kw.value().content_range(),
+                replacement: now,
+            }
+        });
+    }
+    if new == old && earlier.is_empty() {
         return Ok(super::empty_edit_set(doc.source()));
     }
     let written = (!new.trim().is_empty()).then_some(new.as_str());
-    let set = write_affiliated(doc, &element, &format!("ATTR_{backend}"), line, written)?;
+    let last = if new == old {
+        super::empty_edit_set(doc.source())
+    } else {
+        write_affiliated(doc, &element, &format!("ATTR_{backend}"), line, written)?
+    };
+    let mut edits = earlier;
+    edits.extend(last.edits().iter().cloned());
+    let set = EditSet::new(doc.source(), edits)?;
     let holds = |e: &Element, next: &Document| {
         let args = e
             .affiliated()
@@ -1741,6 +1770,49 @@ mod tests {
         );
         let none = "#+begin_example\na\n#+end_example\n";
         assert_eq!(attr(none, "wrap", None).unwrap(), none);
+    }
+
+    #[test]
+    fn a_key_on_several_lines_of_one_backend_keeps_one_value_on_the_last() {
+        let two = "#+ATTR_HTML: :width 300 :alt Plan\n#+ATTR_HTML: :class x\n[[file:a.png]]\n";
+        let doc = parse(two);
+        let paragraph = doc
+            .root()
+            .descendants()
+            .find(|n| n.kind() == OrgSyntaxKind::PARAGRAPH)
+            .expect("a paragraph");
+        let set = |key: &str, value: Option<&str>| {
+            run(
+                two,
+                &Operation::SetAttribute {
+                    target: NodeRef::at(paragraph.text_range().start(), paragraph.kind()),
+                    backend: "html".into(),
+                    key: key.into(),
+                    value: value.map(str::to_owned),
+                },
+            )
+            .unwrap()
+        };
+        // Set: taken out of the first line, written on the last.
+        assert_eq!(
+            set("width", Some("200")),
+            "#+ATTR_HTML: :alt Plan\n#+ATTR_HTML: :class x :width 200\n[[file:a.png]]\n"
+        );
+        // Cleared: taken out wherever it is, an emptied line with it.
+        assert_eq!(
+            set("class", None),
+            "#+ATTR_HTML: :width 300 :alt Plan\n[[file:a.png]]\n"
+        );
+        let one = "#+ATTR_HTML: :alt Plan\n#+attr_html: :class x\n#+ATTR_LATEX: :width 5cm\n[[file:a.png]]\n";
+        let doc = parse(one);
+        let lines: Vec<String> = doc
+            .root()
+            .descendants()
+            .filter_map(Element::cast)
+            .filter_map(|e| e.affiliated())
+            .flat_map(|run| run.attrs_of("HTML").map(|k| k.key()).collect::<Vec<_>>())
+            .collect();
+        assert_eq!(lines, ["ATTR_HTML", "attr_html"]);
     }
 
     fn affiliated(src: &str, key: &str, value: Option<&str>) -> Result<String, OperationError> {
