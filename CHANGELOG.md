@@ -35,6 +35,16 @@ is what Org does with a value, not its syntax.
 
 ### Added
 
+- `Operation::RemoveKeyword`: a keyword line taken out whole, the blank
+  lines after it kept.
+- `Operation::EditKeywordWord` and `WordEdit`: one word of a keyword's
+  value added, replaced or taken out (`#+STARTUP: overview logdone`), the
+  other words and their spacing kept as written.
+- `file_property_value`: a `#+PROPERTY:` line's value, `KEY VALUE` or
+  `KEY+ VALUE`, as Org writes it; and `Keyword::property`, the property one
+  `#+PROPERTY:` line writes, read on its own and not merged, through the
+  same reader `Document::file_property_inherited` uses.
+
 - `Document::file_property_inherited`: a property as Org reads it before
   the first heading.
 - `Operation::SetAffiliated`: an element's affiliated keyword (`NAME`,

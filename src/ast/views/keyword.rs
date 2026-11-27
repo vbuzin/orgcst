@@ -170,6 +170,17 @@ impl Keyword {
         )
     }
 
+    /// The property a `#+PROPERTY:` line writes, on its own line and not
+    /// merged with the others: its key as written (a trailing `+` kept),
+    /// its value and the value's range, as
+    /// [`crate::Document::file_property_inherited`] reads each line. `None`
+    /// for any other keyword, or a `#+PROPERTY:` line that names no
+    /// property.
+    #[must_use]
+    pub fn property(&self) -> Option<crate::ast::Property> {
+        crate::settings::property_line(self.syntax()).map(crate::ast::document::property_from_raw)
+    }
+
     /// Where to write a value when the value is empty.
     ///
     /// The offset is the start of the value node. The lead is a space unless
@@ -1017,6 +1028,24 @@ mod words_tests {
             [("overview", "overview"), ("logdone", "logdone"), ("x", "x")]
         );
         let empty = crate::parse("#+STARTUP:\n");
+        // Each `#+PROPERTY:` line on its own, its `+` kept; other keywords
+        // name none.
+        let props = crate::parse("#+PROPERTY: var a=1\n#+PROPERTY: var+ b=2\n#+TITLE: x\n");
+        let lines: Vec<_> = props
+            .keywords()
+            .map(|k| {
+                k.property()
+                    .map(|p| (p.key().to_owned(), p.value().to_owned()))
+            })
+            .collect();
+        assert_eq!(
+            lines,
+            vec![
+                Some(("var".to_owned(), "a=1".to_owned())),
+                Some(("var+".to_owned(), "b=2".to_owned())),
+                None
+            ]
+        );
         let none: Vec<super::ValueWord> = Vec::new();
         assert_eq!(
             empty.keywords().next().expect("a keyword").value().words(),

@@ -8,5 +8,7 @@
   {"org": ":PROPERTIES:\n:K: f\n:END:\n* H\n", "heading": 0, "key": "K", "emacs": "f"},
   {"org": "* H\n", "heading": 0, "key": "K", "emacs": null},
   {"org": "#+CATEGORY: first\n* One\n#+CATEGORY: second\n* Two\n", "heading": 0, "key": "CATEGORY", "emacs": "second"},
-  {"org": "#+CATEGORY: first\n* One\n#+CATEGORY: second\n* Two\n", "heading": 1, "key": "CATEGORY", "emacs": "second"}
+  {"org": "#+CATEGORY: first\n* One\n#+CATEGORY: second\n* Two\n", "heading": 1, "key": "CATEGORY", "emacs": "second"},
+  {"org": "#+PROPERTY: var a=1\n#+PROPERTY: var+ b=2\n* One\n", "heading": 0, "key": "var", "emacs": "a=1 b=2"},
+  {"org": "#+PROPERTY: Effort_ALL 0:10 0:30\n* One\n", "heading": 0, "key": "Effort_ALL", "emacs": "0:10 0:30"}
 ]

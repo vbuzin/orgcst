@@ -575,15 +575,22 @@ fn parse_filetags_value(value: &str, base: TextSize) -> Vec<RawTag> {
 
 /// Merged `#+PROPERTY:` lines (caseless key; `+` appends; later key replaces).
 pub(crate) fn file_keyword_properties(root: &SyntaxNode) -> Vec<RawProperty> {
-    merge_properties(keyword_lines(root).filter_map(|line| {
-        if !line.key.eq_ignore_ascii_case("property") {
-            return None;
-        }
-        let base = line
-            .value_range
-            .map_or(line.key_range.end(), rowan::TextRange::start);
-        parse_property_value(&line.value, base)
-    }))
+    merge_properties(live_keyword_nodes(root).filter_map(|node| property_line(&node)))
+}
+
+/// The property one `#+PROPERTY:` line writes, unmerged: its key as written
+/// (a trailing `+` kept), its value and the value's range; `None` for any
+/// other keyword, or a line that names no property.
+pub(crate) fn property_line(node: &SyntaxNode) -> Option<RawProperty> {
+    let key_node = child_node(node, OrgSyntaxKind::KEYWORD_KEY)?;
+    let line = setting_line(node, &key_node);
+    if !line.key.eq_ignore_ascii_case("property") {
+        return None;
+    }
+    let base = line
+        .value_range
+        .map_or(line.key_range.end(), rowan::TextRange::start);
+    parse_property_value(&line.value, base)
 }
 
 /// Caseless compare of a written key to a query.

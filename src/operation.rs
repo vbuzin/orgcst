@@ -321,6 +321,26 @@ pub enum Operation {
         /// The new value.
         value: String,
     },
+    /// Remove a keyword line whole: from its start to the end of its line,
+    /// its newline included. The blank lines after it stay.
+    RemoveKeyword {
+        /// The keyword line.
+        target: NodeRef,
+    },
+    /// Change one word of a keyword's value, the value split on ASCII
+    /// whitespace as Org splits a setting's value
+    /// ([`crate::KeywordValue::words`]): the other words and the space
+    /// between them kept as written. A word that is empty or holds
+    /// whitespace is [`OperationError::InvalidKeyword`]; an index past the
+    /// last word is [`OperationError::InvalidOffset`]. Taking out the only
+    /// word leaves `#+KEY:`, as [`Operation::SetKeyword`] leaves an emptied
+    /// value.
+    EditKeywordWord {
+        /// The keyword line.
+        target: NodeRef,
+        /// The word added, replaced or taken out.
+        edit: WordEdit,
+    },
     /// Write a keyword line, `#+KEY: value`, at the head of the file: after
     /// the file's own property drawer, if it has one, and after the keyword
     /// lines that lead the file. Org reads a setting anywhere in the file;
@@ -558,6 +578,26 @@ pub enum Operation {
         range: TextRange,
         /// Text written in their place.
         replacement: String,
+    },
+}
+
+/// One word of a keyword's value changed ([`Operation::EditKeywordWord`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WordEdit {
+    /// A word after the last one, a space between them.
+    Append(String),
+    /// The word at `index` replaced by `word`.
+    Replace {
+        /// Which word, counting from 0.
+        index: usize,
+        /// What it becomes.
+        word: String,
+    },
+    /// The word at `index` taken out with the space before it, or after
+    /// it for the first word.
+    Remove {
+        /// Which word, counting from 0.
+        index: usize,
     },
 }
 
@@ -835,6 +875,10 @@ pub fn compile(doc: &Document, op: &Operation) -> Result<EditSet, OperationError
         Operation::ToggleCheckbox { target } => object::compile_toggle_checkbox(doc, *target),
         Operation::SetKeyword { target, value } => object::compile_set_keyword(doc, *target, value),
         Operation::InsertKeyword { key, value } => object::compile_insert_keyword(doc, key, value),
+        Operation::RemoveKeyword { target } => object::compile_remove_keyword(doc, *target),
+        Operation::EditKeywordWord { target, edit } => {
+            object::compile_edit_keyword_word(doc, *target, edit)
+        }
         Operation::SetLinkPath { target, path } => {
             object::compile_set_link_path(doc, *target, path)
         }
@@ -1243,6 +1287,24 @@ pub(crate) fn assert_envelope(doc: &Document, op: &Operation, set: &EditSet) {
             let keyword =
                 Keyword::cast(target.resolve(doc).expect("live keyword")).expect("KEYWORD");
             let mut dests = vec![keyword.value_fill_insert_point().offset()];
+            if let Some(c) = keyword.part_content_range(KeywordPart::Value)
+                && c.is_empty()
+            {
+                dests.push(c.start());
+            }
+            assert_construct_envelope(set, keyword.range(), &dests);
+        }
+        Operation::RemoveKeyword { target } => {
+            let keyword =
+                Keyword::cast(target.resolve(doc).expect("live keyword")).expect("KEYWORD");
+            assert_construct_envelope(set, keyword.range(), &[]);
+        }
+        Operation::EditKeywordWord { target, .. } => {
+            let keyword =
+                Keyword::cast(target.resolve(doc).expect("live keyword")).expect("KEYWORD");
+            // A word is written after the last one, or fills an empty value.
+            let mut dests = vec![keyword.value_fill_insert_point().offset()];
+            dests.extend(keyword.value().words().last().map(|w| w.range().end()));
             if let Some(c) = keyword.part_content_range(KeywordPart::Value)
                 && c.is_empty()
             {

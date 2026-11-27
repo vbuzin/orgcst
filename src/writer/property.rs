@@ -17,6 +17,33 @@ pub fn is_valid_property_key(key: &str) -> bool {
             .any(|b| matches!(b, b' ' | b'\t' | b'\n' | b'\r'))
 }
 
+/// A `#+PROPERTY:` line's value as Org writes it, `KEY VALUE`, or
+/// `KEY+ VALUE` when the line adds to the property rather than setting it;
+/// what [`crate::Keyword::property`] reads back.
+///
+/// # Errors
+///
+/// [`crate::OperationError::InvalidPropertyKey`] for a key a property
+/// cannot have, [`crate::OperationError::InvalidPropertyValue`] for an empty
+/// value or one with a newline: a line with a key and no value names no
+/// property, and a line is taken out whole instead
+/// ([`crate::Operation::RemoveKeyword`]).
+pub fn file_property_value(
+    key: &str,
+    value: &str,
+    append: bool,
+) -> Result<String, crate::OperationError> {
+    if !is_valid_property_key(key) {
+        return Err(crate::OperationError::InvalidPropertyKey(key.to_owned()));
+    }
+    let value = value.trim();
+    if value.is_empty() || value.contains(['\n', '\r']) {
+        return Err(crate::OperationError::InvalidPropertyValue(key.to_owned()));
+    }
+    let plus = if append { "+" } else { "" };
+    Ok(format!("{key}{plus} {value}"))
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct NodePropertySpec<'a> {
     pub key: &'a str,
@@ -59,6 +86,22 @@ pub(crate) fn render_property_drawer(
 mod tests {
     use super::*;
     use crate::parse;
+
+    #[test]
+    fn a_file_property_value_reads_back_as_the_property_it_writes() {
+        for (key, value, append) in [("Effort_ALL", "0:10 0:30", false), ("var", "b=2", true)] {
+            let written = file_property_value(key, value, append).expect("writable");
+            let doc = parse(&format!("#+PROPERTY: {written}\n"));
+            let kw = doc.keywords().next().expect("keyword");
+            let p = kw.property().expect("a property line");
+            let plus = if append { "+" } else { "" };
+            assert_eq!(p.key(), format!("{key}{plus}"));
+            assert_eq!(p.value(), value);
+        }
+        assert!(file_property_value("A B", "x", false).is_err());
+        assert!(file_property_value("K", "", false).is_err());
+        assert!(file_property_value("K", "a\nb", false).is_err());
+    }
 
     #[test]
     fn property_key_charset() {

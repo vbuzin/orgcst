@@ -71,6 +71,73 @@ pub(super) fn compile_set_keyword(
     replace_content_or_fill(doc, part, keyword.value_fill_insert_point(), value)
 }
 
+pub(super) fn compile_remove_keyword(
+    doc: &Document,
+    target: NodeRef,
+) -> Result<EditSet, OperationError> {
+    let keyword = resolve_view::<Keyword>(doc, target, KEYWORD_KINDS)?;
+    // A keyword's node holds the blank lines after it; its own line ends
+    // at its first newline.
+    let source = doc.source();
+    let start = usize::from(keyword.syntax().text_range().start());
+    let end = source[start..]
+        .find('\n')
+        .map_or(source.len(), |i| start + i + 1);
+    let range = TextRange::new(
+        keyword.syntax().text_range().start(),
+        TextSize::try_from(end).map_err(|_| OperationError::InvalidOffset)?,
+    );
+    Ok(EditSet::single(source, range, String::new())?)
+}
+
+pub(super) fn compile_edit_keyword_word(
+    doc: &Document,
+    target: NodeRef,
+    edit: &crate::WordEdit,
+) -> Result<EditSet, OperationError> {
+    use crate::WordEdit;
+    let keyword = resolve_view::<Keyword>(doc, target, KEYWORD_KINDS)?;
+    let words = keyword.value().words();
+    let source = doc.source();
+    let writable = |w: &str| !w.is_empty() && !w.contains(|c: char| c.is_ascii_whitespace());
+    match edit {
+        WordEdit::Append(word) => {
+            if !writable(word) {
+                return Err(OperationError::InvalidKeyword);
+            }
+            match words.last() {
+                None => compile_set_keyword(doc, target, word),
+                Some(last) => Ok(EditSet::single(
+                    source,
+                    TextRange::empty(last.range().end()),
+                    format!(" {word}"),
+                )?),
+            }
+        }
+        WordEdit::Replace { index, word } => {
+            if !writable(word) {
+                return Err(OperationError::InvalidKeyword);
+            }
+            let at = words.get(*index).ok_or(OperationError::InvalidOffset)?;
+            if at.text() == word {
+                return Ok(empty_edit_set(source));
+            }
+            Ok(EditSet::single(source, at.range(), word.clone())?)
+        }
+        WordEdit::Remove { index } => {
+            let at = words.get(*index).ok_or(OperationError::InvalidOffset)?;
+            if words.len() == 1 {
+                return compile_set_keyword(doc, target, "");
+            }
+            let range = match index.checked_sub(1) {
+                Some(before) => TextRange::new(words[before].range().end(), at.range().end()),
+                None => TextRange::new(at.range().start(), words[1].range().start()),
+            };
+            Ok(EditSet::single(source, range, String::new())?)
+        }
+    }
+}
+
 pub(super) fn compile_insert_keyword(
     doc: &Document,
     key: &str,
@@ -320,6 +387,89 @@ mod tests {
         );
         let (_, text) = compile_write(&parse("#+TITLE: x"), &insert_keyword("AUTHOR", ""));
         assert_eq!(text, "#+TITLE: x\n#+AUTHOR:\n");
+    }
+
+    #[test]
+    fn remove_keyword_takes_its_line_and_leaves_the_blank_lines_after_it() {
+        let doc = parse("#+TITLE: Plans\n#+STARTUP: overview\n\nText.\n");
+        let startup = doc.map::<Keyword>().nth(1).expect("startup");
+        let op = Operation::RemoveKeyword {
+            target: NodeRef::of(&startup),
+        };
+        let (_, text) = compile_write(&doc, &op);
+        assert_eq!(text, "#+TITLE: Plans\n\nText.\n");
+        let last = parse("Text.\n#+AUTHOR: me");
+        let op = Operation::RemoveKeyword {
+            target: NodeRef::of(&first_keyword(&last)),
+        };
+        assert_eq!(compile_write(&last, &op).1, "Text.\n");
+    }
+
+    #[test]
+    fn edit_keyword_word_keeps_the_other_words_as_written() {
+        use crate::WordEdit;
+        let doc = parse("#+STARTUP: overview\t logdone  hideblocks\n");
+        let kw = NodeRef::of(&first_keyword(&doc));
+        let run = |edit: WordEdit| {
+            compile_write(&doc, &Operation::EditKeywordWord { target: kw, edit }).1
+        };
+        assert_eq!(
+            run(WordEdit::Append("indent".into())),
+            "#+STARTUP: overview\t logdone  hideblocks indent\n"
+        );
+        assert_eq!(
+            run(WordEdit::Replace {
+                index: 1,
+                word: "nologdone".into()
+            }),
+            "#+STARTUP: overview\t nologdone  hideblocks\n"
+        );
+        assert_eq!(
+            run(WordEdit::Remove { index: 1 }),
+            "#+STARTUP: overview  hideblocks\n"
+        );
+        assert_eq!(
+            run(WordEdit::Remove { index: 0 }),
+            "#+STARTUP: logdone  hideblocks\n"
+        );
+        let one = parse("#+STARTUP: overview\n");
+        let only = NodeRef::of(&first_keyword(&one));
+        let removed = compile_write(
+            &one,
+            &Operation::EditKeywordWord {
+                target: only,
+                edit: WordEdit::Remove { index: 0 },
+            },
+        );
+        assert_eq!(removed.1, "#+STARTUP:\n");
+        let empty = parse("#+STARTUP:\n");
+        let added = compile_write(
+            &empty,
+            &Operation::EditKeywordWord {
+                target: NodeRef::of(&first_keyword(&empty)),
+                edit: WordEdit::Append("content".into()),
+            },
+        );
+        assert_eq!(added.1, "#+STARTUP: content\n");
+        for edit in [
+            WordEdit::Append(String::new()),
+            WordEdit::Append("two words".into()),
+        ] {
+            assert!(matches!(
+                compile(&doc, &Operation::EditKeywordWord { target: kw, edit }),
+                Err(OperationError::InvalidKeyword)
+            ));
+        }
+        assert!(matches!(
+            compile(
+                &doc,
+                &Operation::EditKeywordWord {
+                    target: kw,
+                    edit: WordEdit::Remove { index: 3 }
+                }
+            ),
+            Err(OperationError::InvalidOffset)
+        ));
     }
 
     #[test]

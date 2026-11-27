@@ -121,8 +121,8 @@ pub use edit::{Anchor, Bias, Edit, EditSet, EditSetError};
 pub use entities::{EntityDef, EntityForm, entity_form};
 pub use operation::{
     ElementInput, HeadingInput, NodeRef, ObjectInput, Operation, OperationError, PlanningPatch,
-    PropertyEdit, SlotPatch, SubtreeDest, TableRowInput, TimestampInput, apply_locating, compile,
-    compile_all, payload_start, relevel_text,
+    PropertyEdit, SlotPatch, SubtreeDest, TableRowInput, TimestampInput, WordEdit, apply_locating,
+    compile, compile_all, payload_start, relevel_text,
 };
 pub use parser::{
     DEFAULT_INLINE_TASK_MIN_LEVEL, DEFAULT_LINK_TYPES, DEFAULT_MAX_NESTING_DEPTH,
@@ -133,8 +133,8 @@ pub use rowan::{TextRange, TextSize};
 pub use syntax::{OrgLanguage, OrgSyntaxKind, SyntaxElement, SyntaxNode, SyntaxToken};
 pub use writer::{
     ArgumentProblem, TimestampProblem, TitleProblem, argument_words, arguments,
-    is_valid_property_key, is_valid_tag_name, set_argument, tag_group, timestamp,
-    title_is_writable, title_problem, variables,
+    file_property_value, is_valid_property_key, is_valid_tag_name, set_argument, tag_group,
+    timestamp, title_is_writable, title_problem, variables,
 };
 
 use std::sync::Arc;
