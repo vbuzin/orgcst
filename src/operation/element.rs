@@ -1169,44 +1169,24 @@ pub(super) fn compile_close_element(
         return Err(OperationError::InvalidOffset);
     };
     let src = doc.source();
-    let start = usize::from(at);
-    let line_end = src[start..].find('\n').map_or(src.len(), |i| start + i);
-    let begin = src[start..line_end].trim_end_matches('\r');
-    let end_line = if let DiagnosticKind::UnterminatedDrawer { .. } = open.kind() {
-        ":END:".to_owned()
-    } else {
-        {
-            // `#+begin_NAME`, its prefix's case kept for the end line.
-            let marker = begin.trim_start();
-            let prefix = marker.get(..8).ok_or(OperationError::InvalidOffset)?;
-            let name: String = marker[8..]
-                .chars()
-                .take_while(|c| !c.is_whitespace())
-                .collect();
-            if name.is_empty() {
-                return Err(OperationError::InvalidOffset);
-            }
-            let end = if prefix == prefix.to_uppercase() {
-                "#+END_"
-            } else {
-                "#+end_"
-            };
-            format!("{end}{name}")
+    let end_line = match open.kind() {
+        DiagnosticKind::UnterminatedBlock { name, .. } => {
+            // The end line in the begin line's case: `#+begin_` or `#+BEGIN_`.
+            let begin = src[usize::from(at)..].trim_start();
+            let upper = begin.get(..8).is_some_and(|p| p == p.to_uppercase());
+            format!("{}{name}", if upper { "#+END_" } else { "#+end_" })
         }
+        _ => ":END:".to_owned(),
     };
-    // The text that follows the begin line, up to a blank line or the end.
-    let mut end = if line_end < src.len() {
-        line_end + 1
-    } else {
-        line_end
-    };
-    while end < src.len() {
-        let next = src[end..].find('\n').map_or(src.len(), |i| end + i);
-        if src[end..next].trim().is_empty() {
-            break;
-        }
-        end = if next < src.len() { next + 1 } else { next };
-    }
+    // Its text is what Org reads after the begin line as one paragraph
+    // with it, up to a blank line, a heading or another element.
+    let paragraph = doc
+        .root()
+        .descendants()
+        .filter_map(Element::cast)
+        .find(|e| e.syntax().text_range().start() == at)
+        .ok_or(OperationError::InvalidOffset)?;
+    let end = usize::from(content_end(doc, &paragraph));
     let break_before = if src[..end].ends_with('\n') { "" } else { "\n" };
     let set = EditSet::new(
         src,
@@ -1365,6 +1345,19 @@ mod tests {
         assert_eq!(
             run(":NOTES:\nOne.\n\nTwo.\n", &Operation::CloseElement { at }).as_deref(),
             Ok(":NOTES:\nOne.\n:END:\n\nTwo.\n")
+        );
+    }
+
+    #[test]
+    fn a_heading_after_a_block_never_closed_stays_outside() {
+        let at = TextSize::from(0);
+        assert_eq!(
+            run(
+                "#+begin_src sh\nls\n* Next\n",
+                &Operation::CloseElement { at }
+            )
+            .as_deref(),
+            Ok("#+begin_src sh\nls\n#+end_src\n* Next\n")
         );
     }
 

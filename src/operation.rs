@@ -476,12 +476,14 @@ pub enum Operation {
     /// Close a block or a drawer that is never closed, so that it reads as
     /// one: its begin line starts at `at`, where the parser's diagnostic
     /// for it starts, and its end line, by the begin line's name and case,
-    /// is written after the text that follows it up to a blank line, so
-    /// the blank lines after it stay after the element.
+    /// is written after the text read with the begin line as one paragraph
+    /// (up to a blank line, a heading or another element), so the blank
+    /// lines after it stay after the element.
     ///
     /// [`OperationError::InvalidOffset`] when no block or drawer that is
     /// never closed begins at `at`; [`OperationError::NotAllowedHere`] when
-    /// the result would not read back as that element, closed.
+    /// the result would not read back as that element, closed (a name the
+    /// diagnostic holds cut short among them).
     CloseElement {
         /// The start of the begin line.
         at: TextSize,
