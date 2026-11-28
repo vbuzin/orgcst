@@ -74,6 +74,10 @@ pub enum TimestampProblem {
     ZeroRepeater,
     /// A delay of zero.
     ZeroDelay,
+    /// A day name the parse would not read back as one (empty, with
+    /// whitespace, a digit, a sign or a bracket), or one where the shape
+    /// takes none: on a diary timestamp, or an end's on a point shape.
+    InvalidDayName,
     /// A diary timestamp cannot carry a repeater or delay.
     DiaryHasRepeaterOrDelay,
     /// The diary sexp contains `>` or a line break.
@@ -195,6 +199,8 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         })
         .unwrap();
         let line = render_planning_line(&[(PlanningKeywordSpec::Scheduled, ts)]).unwrap();

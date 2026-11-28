@@ -55,6 +55,8 @@ fn ymd(year: u16, month: u8, day: u8) -> TimestampInput {
         repeater: None,
         delay: None,
         diary_sexp: None,
+        day_name: None,
+        end_day_name: None,
     }
 }
 
@@ -108,7 +110,10 @@ fn set_prop(target: NodeRef, key: &str, edit: PropertyEdit) -> Operation {
 }
 
 fn set_plan(target: NodeRef, patch: PlanningPatch) -> Operation {
-    Operation::SetPlanning { target, patch }
+    Operation::SetPlanning {
+        target,
+        patch: Box::new(patch),
+    }
 }
 
 fn set_keyword(target: NodeRef, value: &str) -> Operation {
@@ -725,7 +730,7 @@ fn sequential_planning_then_tags_via_apply_locating() {
         &mut [&mut target],
     );
     let doc = apply_op(&doc, &set_tags(target, &["a"]), &mut [&mut target]);
-    assert_eq!(doc.write(), "* Title :a:\nSCHEDULED: <2020-01-01 Wed>\n");
+    assert_eq!(doc.write(), "* Title :a:\nSCHEDULED: <2020-01-01>\n");
     let h = first_heading(&doc);
     let tags: Vec<_> = h
         .tags()

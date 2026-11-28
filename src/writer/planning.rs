@@ -85,12 +85,14 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         })
         .unwrap();
-        assert_eq!(wed, "<2020-01-01 Wed>");
+        assert_eq!(wed, "<2020-01-01>");
         assert_eq!(
             render_planning_slot(PlanningKeywordSpec::Scheduled, &wed),
-            "SCHEDULED: <2020-01-01 Wed>"
+            "SCHEDULED: <2020-01-01>"
         );
 
         let thu = render_timestamp(&TimestampSpec {
@@ -100,6 +102,8 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         })
         .unwrap();
         let closed = render_timestamp(&TimestampSpec {
@@ -115,9 +119,11 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         })
         .unwrap();
-        assert_eq!(closed, "[2020-01-03 Fri 12:00]");
+        assert_eq!(closed, "[2020-01-03 12:00]");
 
         let line = render_planning_line(&[
             (PlanningKeywordSpec::Closed, closed.clone()),
@@ -127,21 +133,18 @@ mod tests {
         .unwrap();
         assert_eq!(
             line,
-            "DEADLINE: <2020-01-02 Thu> SCHEDULED: <2020-01-01 Wed> CLOSED: [2020-01-03 Fri 12:00]\n"
+            "DEADLINE: <2020-01-02> SCHEDULED: <2020-01-01> CLOSED: [2020-01-03 12:00]\n"
         );
 
         let one = render_planning_line(&[(PlanningKeywordSpec::Scheduled, wed.clone())]).unwrap();
-        assert_eq!(one, "SCHEDULED: <2020-01-01 Wed>\n");
+        assert_eq!(one, "SCHEDULED: <2020-01-01>\n");
 
         let two = render_planning_line(&[
             (PlanningKeywordSpec::Scheduled, wed),
             (PlanningKeywordSpec::Deadline, thu),
         ])
         .unwrap();
-        assert_eq!(
-            two,
-            "DEADLINE: <2020-01-02 Thu> SCHEDULED: <2020-01-01 Wed>\n"
-        );
+        assert_eq!(two, "DEADLINE: <2020-01-02> SCHEDULED: <2020-01-01>\n");
     }
 
     #[test]
@@ -168,12 +171,14 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         })
         .unwrap();
         let line = render_planning_line(&[(PlanningKeywordSpec::Scheduled, ts)]).unwrap();
         let src = format!("* H\n{line}");
         let doc = parse(&src);
-        super::super::equal::assert_planning_scheduled(&doc, "<2020-01-01 Wed>");
+        super::super::equal::assert_planning_scheduled(&doc, "<2020-01-01>");
 
         let wed = render_timestamp(&TimestampSpec {
             shape: TimestampShape::Active,
@@ -182,6 +187,8 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         })
         .unwrap();
         let thu = render_timestamp(&TimestampSpec {
@@ -191,6 +198,8 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         })
         .unwrap();
         let closed = render_timestamp(&TimestampSpec {
@@ -206,6 +215,8 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         })
         .unwrap();
         let line = render_planning_line(&[
@@ -217,9 +228,9 @@ mod tests {
         let doc = parse(&format!("* H\n{line}"));
         super::super::equal::assert_planning_eq(
             &doc,
-            Some("<2020-01-02 Thu>"),
-            Some("<2020-01-01 Wed>"),
-            Some("[2020-01-03 Fri 12:00]"),
+            Some("<2020-01-02>"),
+            Some("<2020-01-01>"),
+            Some("[2020-01-03 12:00]"),
         );
     }
 }

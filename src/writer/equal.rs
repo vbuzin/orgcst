@@ -200,9 +200,11 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         })
         .unwrap();
-        assert_eq!(ts, "<2020-01-01 Wed>");
+        assert_eq!(ts, "<2020-01-01>");
         let planning =
             render_planning_line(&[(PlanningKeywordSpec::Scheduled, ts.clone())]).unwrap();
         let drawer = render_property_drawer(&[NodePropertySpec {
@@ -214,7 +216,7 @@ mod tests {
         let src = format!("{heading}{planning}{drawer}");
         assert_eq!(
             src,
-            "* TODO [#A] Title :work:\nSCHEDULED: <2020-01-01 Wed>\n:PROPERTIES:\n:ID: abc\n:END:\n"
+            "* TODO [#A] Title :work:\nSCHEDULED: <2020-01-01>\n:PROPERTIES:\n:ID: abc\n:END:\n"
         );
         let doc = parse(&src);
         assert_heading_eq(
@@ -228,7 +230,7 @@ mod tests {
                 tags: &["work"],
             },
         );
-        assert_planning_scheduled(&doc, "<2020-01-01 Wed>");
+        assert_planning_scheduled(&doc, "<2020-01-01>");
         assert_property_drawer_eq(
             &doc,
             &[NodePropertySpec {

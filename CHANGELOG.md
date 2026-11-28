@@ -27,6 +27,13 @@ is what Org does with a value, not its syntax.
 
 ### Changed
 
+- A timestamp is written with the day name its `TimestampInput` gives
+  (`day_name`, and `end_day_name` for a range), in whatever language, or
+  with none; the writer no longer works out an English name from the
+  date. A name the parse would not read back, or one where the shape
+  takes none, is `TimestampProblem::InvalidDayName`.
+- `Operation::SetPlanning` holds its `PlanningPatch` boxed.
+
 - `Operation::SetAttribute` leaves a key one value when an element has
   several `#+ATTR_<backend>:` lines: it is written on the last line and
   taken out of the earlier ones, a line left empty removed; clearing it

@@ -99,6 +99,13 @@ pub struct TimestampInput {
     /// Sexp of a diary timestamp, written inside `<%%(` and `)>`; only for
     /// [`TimestampShape::Diary`].
     pub diary_sexp: Option<String>,
+    /// The day name written after the start's date as given (`Wed`, `Mi`,
+    /// whatever the caller's locale names it); `None` writes the date
+    /// alone. Org gives the name no meaning: it is read and kept, never
+    /// used. Not allowed on a diary timestamp.
+    pub day_name: Option<String>,
+    /// The day name after the end's date, for a range shape only.
+    pub end_day_name: Option<String>,
 }
 
 /// Spec for a newly inserted heading. The level is written as given: compile
@@ -199,8 +206,9 @@ pub enum Operation {
     SetPlanning {
         /// The heading, inline task or outline whose planning line is patched.
         target: NodeRef,
-        /// The change for each slot.
-        patch: PlanningPatch,
+        /// The change for each slot, boxed: three timestamps are the
+        /// largest operation by far.
+        patch: Box<PlanningPatch>,
     },
 
     /// Insert a heading at `at`, at the level given in `heading`. Find the

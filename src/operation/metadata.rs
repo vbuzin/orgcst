@@ -299,6 +299,8 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         }
     }
 
@@ -316,6 +318,8 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         }
     }
 
@@ -340,7 +344,10 @@ mod tests {
     }
 
     fn set_plan(target: NodeRef, patch: PlanningPatch) -> Operation {
-        Operation::SetPlanning { target, patch }
+        Operation::SetPlanning {
+            target,
+            patch: Box::new(patch),
+        }
     }
 
     #[test]
@@ -616,7 +623,7 @@ mod tests {
                 ),
             ),
         );
-        assert_eq!(text, "* H\nSCHEDULED: <2020-01-01 Wed>\n");
+        assert_eq!(text, "* H\nSCHEDULED: <2020-01-01>\n");
 
         let doc = parse("* H\nSCHEDULED: <2020-01-01 Mi>\n");
         let (_, text) = compile_write(
@@ -632,7 +639,7 @@ mod tests {
         );
         assert_eq!(
             text,
-            "* H\nDEADLINE: <2020-01-02 Thu> SCHEDULED: <2020-01-01 Mi> CLOSED: [2020-01-03 Fri 12:00]\n"
+            "* H\nDEADLINE: <2020-01-02> SCHEDULED: <2020-01-01 Mi> CLOSED: [2020-01-03 12:00]\n"
         );
         assert!(text.contains("<2020-01-01 Mi>"));
     }
@@ -651,7 +658,7 @@ mod tests {
                 ),
             ),
         );
-        assert_eq!(text, "* H\nSCHEDULED: <2020-01-01 Wed>\n");
+        assert_eq!(text, "* H\nSCHEDULED: <2020-01-01>\n");
 
         let doc = parse("* H\nSCHEDULED:\n");
         let (set, text) = compile_write(
@@ -690,7 +697,7 @@ mod tests {
         assert!(set.edits()[0].range.is_empty());
         assert_eq!(
             text,
-            "* H\nSCHEDULED: <2020-01-01 Wed> DEADLINE: <2020-01-02 Thu>\n"
+            "* H\nSCHEDULED: <2020-01-01 Wed> DEADLINE: <2020-01-02>\n"
         );
         assert_eq!(text.matches("DEADLINE:").count(), 1);
 
@@ -708,7 +715,7 @@ mod tests {
         );
         let p = doc.root_outlines().next().unwrap().planning().unwrap();
         assert_eq!(set.edits()[0].range, p.scheduled().unwrap().range());
-        assert_eq!(text, "* H\nscheduled: <2020-01-02 Thu>\n");
+        assert_eq!(text, "* H\nscheduled: <2020-01-02>\n");
 
         let doc = parse("* H\nDEADLINE: <2020-01-01 Wed> SCHEDULED:\n");
         let (set, text) = compile_write(
@@ -725,7 +732,7 @@ mod tests {
         assert!(set.edits()[0].range.is_empty());
         assert_eq!(
             text,
-            "* H\nDEADLINE: <2020-01-01 Wed> SCHEDULED: <2020-01-02 Thu>\n"
+            "* H\nDEADLINE: <2020-01-01 Wed> SCHEDULED: <2020-01-02>\n"
         );
         assert_eq!(text.matches("SCHEDULED:").count(), 1);
     }
@@ -776,9 +783,9 @@ mod tests {
         );
         assert!(set.edits()[0].range.is_empty());
         assert_eq!(set.edits()[0].range.start(), dest.offset());
-        assert_eq!(text, "* H\nSCHEDULED: <2020-01-01 Wed>\n");
+        assert_eq!(text, "* H\nSCHEDULED: <2020-01-01>\n");
 
-        let doc = parse("* H\nSCHEDULED: <2020-01-01 Wed>\n");
+        let doc = parse("* H\nSCHEDULED: <2020-01-01>\n");
         let set = compile(
             &doc,
             &set_plan(
@@ -822,6 +829,8 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         };
         let err = compile(
             &doc,
@@ -882,7 +891,7 @@ mod tests {
         .expect("planning present: dests differ");
         assert_eq!(
             set.apply_to_text(doc.source()),
-            "* H\nSCHEDULED: <2020-01-01 Wed> DEADLINE: <2020-01-02 Thu>\n:PROPERTIES:\n:KEY:\n:END:\n"
+            "* H\nSCHEDULED: <2020-01-01 Wed> DEADLINE: <2020-01-02>\n:PROPERTIES:\n:KEY:\n:END:\n"
         );
     }
 
@@ -901,7 +910,7 @@ mod tests {
                 ),
             ),
         );
-        assert_eq!(text, "* H\nSCHEDULED: <2020-01-01 Wed>\n");
+        assert_eq!(text, "* H\nSCHEDULED: <2020-01-01>\n");
 
         let src = "*************** T\n*************** END\n";
         let doc = parse(src);
@@ -938,13 +947,13 @@ mod tests {
         );
         assert_eq!(
             text,
-            "* H\nSCHEDULED: <2020-01-01 Wed> DEADLINE: <2020-01-02 Thu>\n"
+            "* H\nSCHEDULED: <2020-01-01 Wed> DEADLINE: <2020-01-02>\n"
         );
     }
 
     #[test]
     fn set_planning_set_same_stamp_is_noop() {
-        let doc = parse("* H\nSCHEDULED: <2020-01-01 Wed>\n");
+        let doc = parse("* H\nSCHEDULED: <2020-01-01>\n");
         let set = compile(
             &doc,
             &set_plan(
@@ -1057,12 +1066,12 @@ mod tests {
         );
         assert_eq!(set.len(), 1);
         assert_eq!(set.edits()[0].range, p.range());
-        assert_eq!(text, "* H\nDEADLINE: <2020-01-03 Fri>\n");
+        assert_eq!(text, "* H\nDEADLINE: <2020-01-03>\n");
         assert!(!text.contains("SCHEDULED"));
     }
 
     #[test]
-    fn set_planning_set_corrects_stale_weekday() {
+    fn set_planning_set_writes_the_date_without_its_day_name() {
         let doc = parse("* H\nSCHEDULED: <2020-01-01 Mi>\n");
         let p = doc.root_outlines().next().unwrap().planning().unwrap();
         let (set, text) = compile_write(
@@ -1077,7 +1086,7 @@ mod tests {
             ),
         );
         assert_eq!(set.edits()[0].range, p.scheduled().unwrap().range());
-        assert_eq!(text, "* H\nSCHEDULED: <2020-01-01 Wed>\n");
+        assert_eq!(text, "* H\nSCHEDULED: <2020-01-01>\n");
     }
 
     #[test]
@@ -1116,7 +1125,7 @@ mod tests {
         assert_eq!(set.edits()[0].range.start(), dest.offset());
         assert_eq!(
             text,
-            "* H\nSCHEDULED: <2020-01-01 Wed>\n:PROPERTIES:\n:FOO: v\n:END:\n"
+            "* H\nSCHEDULED: <2020-01-01>\n:PROPERTIES:\n:FOO: v\n:END:\n"
         );
     }
 }

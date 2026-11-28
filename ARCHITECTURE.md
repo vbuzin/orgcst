@@ -585,8 +585,9 @@ New text comes from two places:
 - **Verbatim.** `Document::slice` and `AstNode::text` copy existing parts.
 - **Synthesis.** Crate-internal `render_*` functions in `writer/` produce
   canonical Org for new material. Synthesis never emits a byte order mark,
-  ends new lines with one `\n`, and writes timestamps as `YYYY-MM-DD` with an
-  English weekday.
+  ends new lines with one `\n`, and writes timestamps as `YYYY-MM-DD` with
+  the day name the caller gives, or none: Org reads no meaning from it, and
+  Emacs writes it in the person's locale.
 
 Public helpers expose the writer's rules without its internals:
 `is_valid_tag_name`, `title_problem`, `is_valid_property_key`,

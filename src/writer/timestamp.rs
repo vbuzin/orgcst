@@ -2,6 +2,7 @@
 //! diary sexp.
 
 use super::{SynthesisError, TimestampProblem};
+use crate::parser::grammar::forms::timestamp::is_weekday_text;
 use crate::{
     Delay, DelayKind, Repeater, RepeaterKind, RepeaterUnit, TimestampPoint, TimestampShape,
 };
@@ -15,11 +16,14 @@ pub(crate) struct TimestampSpec<'a> {
     pub repeater: Option<Repeater>,
     pub delay: Option<Delay>,
     pub diary_sexp: Option<&'a str>,
+    pub day_name: Option<&'a str>,
+    pub end_day_name: Option<&'a str>,
 }
 
 /// A timestamp as Org writes one (`<2026-11-23 Mon 14:05>`,
-/// `[2026-11-23 Mon]`, a range, a diary sexp), the text the operations
-/// that set a timestamp write.
+/// `[2026-11-23]`, a range, a diary sexp), the text the operations that
+/// set a timestamp write. A day name is written only when the input
+/// gives one.
 ///
 /// # Errors
 ///
@@ -34,6 +38,8 @@ pub fn timestamp(input: &crate::TimestampInput) -> Result<String, crate::Operati
         repeater: input.repeater,
         delay: input.delay,
         diary_sexp: input.diary_sexp.as_deref(),
+        day_name: input.day_name.as_deref(),
+        end_day_name: input.end_day_name.as_deref(),
     })
     .map_err(crate::operation::map_synthesis)
 }
@@ -58,9 +64,19 @@ fn render_point_shape(spec: &TimestampSpec<'_>) -> Result<String, TimestampProbl
         return Err(TimestampProblem::MissingStart);
     };
     check_repeater_and_delay(spec.repeater, spec.delay)?;
+    if spec.end_day_name.is_some() {
+        return Err(TimestampProblem::InvalidDayName);
+    }
     let (open, close) = brackets(spec.shape);
     match spec.end {
-        None => render_point(open, close, start, None, spec.repeater, spec.delay),
+        None => render_point(
+            open,
+            close,
+            (start, spec.day_name),
+            None,
+            spec.repeater,
+            spec.delay,
+        ),
         Some(end) => {
             if !same_ymd(start, end) {
                 return Err(TimestampProblem::EndDateMismatch);
@@ -71,7 +87,7 @@ fn render_point_shape(spec: &TimestampSpec<'_>) -> Result<String, TimestampProbl
             render_point(
                 open,
                 close,
-                start,
+                (start, spec.day_name),
                 Some(end_clock),
                 spec.repeater,
                 spec.delay,
@@ -94,8 +110,15 @@ fn render_range_shape(spec: &TimestampSpec<'_>) -> Result<String, TimestampProbl
     clock_of(start)?;
     clock_of(end)?;
     let (open, close) = brackets(spec.shape);
-    let a = render_point(open, close, start, None, spec.repeater, spec.delay)?;
-    let b = render_point(open, close, end, None, None, None)?;
+    let a = render_point(
+        open,
+        close,
+        (start, spec.day_name),
+        None,
+        spec.repeater,
+        spec.delay,
+    )?;
+    let b = render_point(open, close, (end, spec.end_day_name), None, None, None)?;
     Ok(format!("{a}--{b}"))
 }
 
@@ -105,6 +128,9 @@ fn render_diary(spec: &TimestampSpec<'_>) -> Result<String, TimestampProblem> {
     };
     if spec.repeater.is_some() || spec.delay.is_some() {
         return Err(TimestampProblem::DiaryHasRepeaterOrDelay);
+    }
+    if spec.day_name.is_some() || spec.end_day_name.is_some() {
+        return Err(TimestampProblem::InvalidDayName);
     }
     if sexp.contains(['>', '\n', '\r']) {
         return Err(TimestampProblem::InvalidDiarySexp);
@@ -132,7 +158,7 @@ fn brackets(shape: TimestampShape) -> (char, char) {
 fn render_point(
     open: char,
     close: char,
-    p: TimestampPoint,
+    (p, day_name): (TimestampPoint, Option<&str>),
     end_clock: Option<(u8, u8)>,
     repeater: Option<Repeater>,
     delay: Option<Delay>,
@@ -144,9 +170,13 @@ fn render_point(
     let mut s = String::new();
     s.push(open);
     let _ = write!(s, "{:04}-{:02}-{:02}", p.year, p.month, p.day);
-    if let Some(wd) = weekday_abbrev(p.year, p.month, p.day) {
+    if let Some(name) = day_name {
+        // A name the parse reads back as the day name, and nothing else.
+        if name.contains(char::is_whitespace) || !is_weekday_text(name) {
+            return Err(TimestampProblem::InvalidDayName);
+        }
         s.push(' ');
-        s.push_str(wd);
+        s.push_str(name);
     }
     if let Some((h, m)) = start_clock {
         s.push(' ');
@@ -229,51 +259,6 @@ fn unit_char(u: RepeaterUnit) -> char {
     }
 }
 
-fn weekday_abbrev(year: u16, month: u8, day: u8) -> Option<&'static str> {
-    if !is_valid_gregorian(year, month, day) {
-        return None;
-    }
-    let days = days_from_civil(i32::from(year), u32::from(month), u32::from(day));
-    // Unix day 0 is Thursday; +4 maps 0 onto NAMES[4].
-    Some(NAMES[(days + 4).rem_euclid(7) as usize])
-}
-
-const NAMES: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-fn is_valid_gregorian(year: u16, month: u8, day: u8) -> bool {
-    days_in_month(year, month).is_some_and(|dim| (1..=dim).contains(&day))
-}
-
-fn days_in_month(year: u16, month: u8) -> Option<u8> {
-    match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => Some(31),
-        4 | 6 | 9 | 11 => Some(30),
-        2 => Some(if is_leap(year) { 29 } else { 28 }),
-        _ => None,
-    }
-}
-
-fn is_leap(year: u16) -> bool {
-    let y = u32::from(year);
-    y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)
-}
-
-/// Days since 1970-01-01 (Unix epoch), after Howard Hinnant's `days_from_civil`.
-///
-/// Callers pass a `u16` year. The era split keeps year-of-era in `0..400`
-/// and day-of-era inside `i32`.
-#[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
-fn days_from_civil(mut y: i32, m: u32, d: u32) -> i32 {
-    if m <= 2 {
-        y -= 1;
-    }
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = (y - era * 400) as u32;
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe as i32 - 719_468
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,17 +285,9 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         }
-    }
-
-    #[test]
-    fn weekday_pins() {
-        assert_eq!(weekday_abbrev(2020, 1, 1), Some("Wed"));
-        assert_eq!(weekday_abbrev(1970, 1, 1), Some("Thu"));
-        assert_eq!(weekday_abbrev(2020, 2, 29), Some("Sat"));
-        assert_eq!(weekday_abbrev(2020, 2, 30), None);
-        assert_eq!(weekday_abbrev(2020, 0, 1), None);
-        assert_eq!(weekday_abbrev(2020, 13, 1), None);
     }
 
     #[test]
@@ -318,7 +295,7 @@ mod tests {
     fn point_and_range_recipes() {
         assert_eq!(
             render_timestamp(&spec_active(point(2020, 1, 1))).unwrap(),
-            "<2020-01-01 Wed>"
+            "<2020-01-01>"
         );
         assert_eq!(
             render_timestamp(&TimestampSpec {
@@ -328,9 +305,11 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             })
             .unwrap(),
-            "[2026-06-24 Wed]"
+            "[2026-06-24]"
         );
         let in_stamp = TimestampSpec {
             shape: TimestampShape::Active,
@@ -360,10 +339,12 @@ mod tests {
                 unit: RepeaterUnit::Day,
             }),
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         };
         assert_eq!(
             render_timestamp(&in_stamp).unwrap(),
-            "<2020-01-01 Wed 10:00-11:00 +1w -2d>"
+            "<2020-01-01 10:00-11:00 +1w -2d>"
         );
         let range = TimestampSpec {
             shape: TimestampShape::ActiveRange,
@@ -372,10 +353,12 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         };
         assert_eq!(
             render_timestamp(&range).unwrap(),
-            "<2020-01-01 Wed>--<2020-01-05 Sun>"
+            "<2020-01-01>--<2020-01-05>"
         );
         assert_eq!(
             render_timestamp(&TimestampSpec {
@@ -385,6 +368,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             })
             .unwrap(),
             "<2020-02-30>"
@@ -397,6 +382,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             })
             .unwrap(),
             "<2020-00-01>"
@@ -409,6 +396,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: Some("diary-float t 4 2"),
+                day_name: None,
+                end_day_name: None,
             })
             .unwrap(),
             "<%%(diary-float t 4 2)>"
@@ -421,9 +410,11 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             })
             .unwrap(),
-            "[2020-01-01 Wed]--[2020-01-05 Sun]"
+            "[2020-01-01]--[2020-01-05]"
         );
         assert_eq!(
             render_timestamp(&TimestampSpec {
@@ -438,9 +429,11 @@ mod tests {
                 }),
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             })
             .unwrap(),
-            "<2020-01-01 Wed ++1d>"
+            "<2020-01-01 ++1d>"
         );
         assert_eq!(
             render_timestamp(&TimestampSpec {
@@ -455,9 +448,11 @@ mod tests {
                 }),
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             })
             .unwrap(),
-            "<2020-01-01 Wed .+1w>"
+            "<2020-01-01 .+1w>"
         );
         assert_eq!(
             render_timestamp(&TimestampSpec {
@@ -471,9 +466,11 @@ mod tests {
                     unit: RepeaterUnit::Day,
                 }),
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             })
             .unwrap(),
-            "<2020-01-01 Wed --2d>"
+            "<2020-01-01 --2d>"
         );
         assert_eq!(
             render_timestamp(&TimestampSpec {
@@ -488,9 +485,11 @@ mod tests {
                 }),
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             })
             .unwrap(),
-            "<2020-01-01 Wed ++1d/3d>"
+            "<2020-01-01 ++1d/3d>"
         );
     }
 
@@ -525,9 +524,11 @@ mod tests {
                 unit: RepeaterUnit::Day,
             }),
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         };
         let bytes = render_timestamp(&in_stamp).unwrap();
-        assert_eq!(bytes, "<2020-01-01 Wed 10:00-11:00 +1w -2d>");
+        assert_eq!(bytes, "<2020-01-01 10:00-11:00 +1w -2d>");
         super::super::equal::assert_timestamp_eq(&parse(&format!("{bytes}\n")), &in_stamp);
 
         let range = TimestampSpec {
@@ -537,6 +538,8 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         };
         let bytes = render_timestamp(&range).unwrap();
         super::super::equal::assert_timestamp_eq(&parse(&format!("{bytes}\n")), &range);
@@ -554,9 +557,11 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         };
         let bytes = render_timestamp(&mixed).unwrap();
-        assert_eq!(bytes, "<2020-01-01 Wed>--<2020-01-05 Sun 12:00>");
+        assert_eq!(bytes, "<2020-01-01>--<2020-01-05 12:00>");
         super::super::equal::assert_timestamp_eq(&parse(&format!("{bytes}\n")), &mixed);
 
         let diary = TimestampSpec {
@@ -572,6 +577,8 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: Some("diary-float t 4 2"),
+            day_name: None,
+            end_day_name: None,
         };
         let bytes = render_timestamp(&diary).unwrap();
         assert_eq!(bytes, "<%%(diary-float t 4 2) 09:00>");
@@ -584,9 +591,11 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         };
         let bytes = render_timestamp(&inactive_range).unwrap();
-        assert_eq!(bytes, "[2020-01-01 Wed]--[2020-01-05 Sun]");
+        assert_eq!(bytes, "[2020-01-01]--[2020-01-05]");
         super::super::equal::assert_timestamp_eq(&parse(&format!("{bytes}\n")), &inactive_range);
 
         let catch_up = TimestampSpec {
@@ -605,9 +614,11 @@ mod tests {
                 unit: RepeaterUnit::Day,
             }),
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         };
         let bytes = render_timestamp(&catch_up).unwrap();
-        assert_eq!(bytes, "<2020-01-01 Wed ++1d/3d --2d>");
+        assert_eq!(bytes, "<2020-01-01 ++1d/3d --2d>");
         super::super::equal::assert_timestamp_eq(&parse(&format!("{bytes}\n")), &catch_up);
 
         let restart = TimestampSpec {
@@ -622,6 +633,8 @@ mod tests {
             }),
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         };
         let bytes = render_timestamp(&restart).unwrap();
         super::super::equal::assert_timestamp_eq(&parse(&format!("{bytes}\n")), &restart);
@@ -643,6 +656,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             MissingStart
         );
@@ -654,6 +669,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             EndDateMismatch
         );
@@ -677,6 +694,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             InvalidTime
         );
@@ -694,6 +713,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             InvalidTime
         );
@@ -711,6 +732,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             InvalidTime
         );
@@ -722,6 +745,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: Some("x"),
+                day_name: None,
+                end_day_name: None,
             }),
             UnexpectedDiary
         );
@@ -738,6 +763,8 @@ mod tests {
                 }),
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             ZeroRepeater
         );
@@ -754,6 +781,8 @@ mod tests {
                 }),
                 delay: None,
                 diary_sexp: Some("x"),
+                day_name: None,
+                end_day_name: None,
             }),
             DiaryHasRepeaterOrDelay
         );
@@ -765,6 +794,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             MissingDiarySexp
         );
@@ -776,6 +807,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: Some("foo)>bar"),
+                day_name: None,
+                end_day_name: None,
             }),
             InvalidDiarySexp
         );
@@ -792,6 +825,8 @@ mod tests {
                 }),
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             ZeroRepeater
         );
@@ -803,6 +838,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             MissingEnd
         );
@@ -826,6 +863,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             EndWithoutTime
         );
@@ -843,6 +882,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             InvalidTime
         );
@@ -858,6 +899,8 @@ mod tests {
                     unit: RepeaterUnit::Day,
                 }),
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             ZeroDelay
         );
@@ -869,6 +912,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: Some("x"),
+                day_name: None,
+                end_day_name: None,
             }),
             UnexpectedDiary
         );
@@ -884,6 +929,8 @@ mod tests {
                     unit: RepeaterUnit::Day,
                 }),
                 diary_sexp: Some("x"),
+                day_name: None,
+                end_day_name: None,
             }),
             DiaryHasRepeaterOrDelay
         );
@@ -895,6 +942,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: None,
+                day_name: None,
+                end_day_name: None,
             }),
             MissingStart
         );
@@ -906,6 +955,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: Some("a>b"),
+                day_name: None,
+                end_day_name: None,
             }),
             InvalidDiarySexp
         );
@@ -917,6 +968,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: Some("foo) extra >\n* Injected heading"),
+                day_name: None,
+                end_day_name: None,
             }),
             InvalidDiarySexp
         );
@@ -928,6 +981,8 @@ mod tests {
                 repeater: None,
                 delay: None,
                 diary_sexp: Some("x\ny"),
+                day_name: None,
+                end_day_name: None,
             }),
             InvalidDiarySexp
         );
@@ -948,17 +1003,104 @@ mod tests {
             repeater: None,
             delay: None,
             diary_sexp: None,
+            day_name: None,
+            end_day_name: None,
         };
         assert_eq!(
             super::timestamp(&input(TimestampShape::Active, None)).unwrap(),
-            "<2026-11-23 Mon>"
+            "<2026-11-23>"
         );
         assert_eq!(
             super::timestamp(&input(TimestampShape::Inactive, Some(14))).unwrap(),
-            "[2026-11-23 Mon 14:05]"
+            "[2026-11-23 14:05]"
         );
         let mut missing = input(TimestampShape::Active, None);
         missing.start = None;
         assert!(super::timestamp(&missing).is_err());
+    }
+}
+
+#[cfg(test)]
+mod day_names {
+    use super::*;
+    use crate::parse;
+    use crate::{AstNode, Timestamp};
+
+    fn spec(shape: TimestampShape, name: Option<&'static str>) -> TimestampSpec<'static> {
+        let at = |day| TimestampPoint {
+            year: 2020,
+            month: 1,
+            day,
+            hour: None,
+            minute: None,
+        };
+        TimestampSpec {
+            shape,
+            start: Some(at(1)),
+            end: matches!(
+                shape,
+                TimestampShape::ActiveRange | TimestampShape::InactiveRange
+            )
+            .then(|| at(2)),
+            repeater: None,
+            delay: None,
+            diary_sexp: None,
+            day_name: name,
+            end_day_name: None,
+        }
+    }
+
+    #[test]
+    fn a_day_name_is_written_only_as_given() {
+        let write = |s| render_timestamp(&s).unwrap();
+        assert_eq!(write(spec(TimestampShape::Active, None)), "<2020-01-01>");
+        assert_eq!(
+            write(spec(TimestampShape::Active, Some("Wed"))),
+            "<2020-01-01 Wed>"
+        );
+        // Whatever the caller's locale names it, never checked against the date.
+        assert_eq!(
+            write(spec(TimestampShape::Inactive, Some("Mi"))),
+            "[2020-01-01 Mi]"
+        );
+        let range = TimestampSpec {
+            end_day_name: Some("Thu"),
+            ..spec(TimestampShape::ActiveRange, Some("Wed"))
+        };
+        let text = write(range);
+        assert_eq!(text, "<2020-01-01 Wed>--<2020-01-02 Thu>");
+        // It reads back as one timestamp.
+        let doc = parse(&format!("{text}\n"));
+        assert!(
+            doc.root()
+                .descendants()
+                .any(|n| Timestamp::cast(n).is_some())
+        );
+        let no_names = write(spec(TimestampShape::ActiveRange, None));
+        assert_eq!(no_names, "<2020-01-01>--<2020-01-02>");
+    }
+
+    #[test]
+    fn a_day_name_the_parse_would_not_read_back_is_refused() {
+        let refused = |s| render_timestamp_inner(&s).unwrap_err();
+        for bad in ["", "W ed", "12", "+1", "-x", "Wed>", "Wed]"] {
+            assert_eq!(
+                refused(spec(TimestampShape::Active, Some(bad))),
+                TimestampProblem::InvalidDayName,
+                "{bad:?}"
+            );
+        }
+        // An end's name on a point, a name on a diary timestamp.
+        let point = TimestampSpec {
+            end_day_name: Some("Thu"),
+            ..spec(TimestampShape::Active, None)
+        };
+        assert_eq!(refused(point), TimestampProblem::InvalidDayName);
+        let diary = TimestampSpec {
+            start: None,
+            diary_sexp: Some("diary-float t 4 2"),
+            ..spec(TimestampShape::Diary, Some("Thu"))
+        };
+        assert_eq!(refused(diary), TimestampProblem::InvalidDayName);
     }
 }
