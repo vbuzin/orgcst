@@ -473,6 +473,19 @@ pub enum Operation {
         /// The block or drawer.
         target: NodeRef,
     },
+    /// Close a block or a drawer that is never closed, so that it reads as
+    /// one: its begin line starts at `at`, where the parser's diagnostic
+    /// for it starts, and its end line, by the begin line's name and case,
+    /// is written after the text that follows it up to a blank line, so
+    /// the blank lines after it stay after the element.
+    ///
+    /// [`OperationError::InvalidOffset`] when no block or drawer that is
+    /// never closed begins at `at`; [`OperationError::NotAllowedHere`] when
+    /// the result would not read back as that element, closed.
+    CloseElement {
+        /// The start of the begin line.
+        at: TextSize,
+    },
     /// Remove a block's or a drawer's begin and end lines and keep its
     /// contents where it was: code with its escaping undone, Org text as
     /// written. Affiliated keywords before it stay, and so does the blank
@@ -899,6 +912,7 @@ pub fn compile(doc: &Document, op: &Operation) -> Result<EditSet, OperationError
         }
         Operation::UnwrapElement { target } => element::compile_unwrap_element(doc, *target),
         Operation::ExtendElement { target } => element::compile_extend_element(doc, *target),
+        Operation::CloseElement { at } => element::compile_close_element(doc, *at),
         Operation::SetElementName { target, name } => {
             element::compile_set_element_name(doc, *target, name)
         }
@@ -1355,6 +1369,9 @@ pub(crate) fn assert_envelope(doc: &Document, op: &Operation, set: &EditSet) {
         Operation::UnwrapElement { target } | Operation::SetElementName { target, .. } => {
             let node = target.resolve(doc).expect("live element");
             assert_edits_within(set, node.text_range());
+        }
+        Operation::CloseElement { at } => {
+            assert_edits_within(set, TextRange::new(*at, TextSize::of(doc.source())));
         }
         Operation::ExtendElement { target } => {
             let node = target.resolve(doc).expect("live element");

@@ -1151,6 +1151,92 @@ fn element_run(doc: &Document, range: TextRange) -> Result<(Element, Element), O
     }
 }
 
+/// Close the block or drawer that is never closed and begins at `at`.
+pub(super) fn compile_close_element(
+    doc: &Document,
+    at: TextSize,
+) -> Result<EditSet, OperationError> {
+    use crate::DiagnosticKind;
+    let open = doc.diagnostics().iter().find(|d| {
+        d.range().start() == at
+            && matches!(
+                d.kind(),
+                DiagnosticKind::UnterminatedBlock { dynamic: false, .. }
+                    | DiagnosticKind::UnterminatedDrawer { .. }
+            )
+    });
+    let Some(open) = open else {
+        return Err(OperationError::InvalidOffset);
+    };
+    let src = doc.source();
+    let start = usize::from(at);
+    let line_end = src[start..].find('\n').map_or(src.len(), |i| start + i);
+    let begin = src[start..line_end].trim_end_matches('\r');
+    let end_line = if let DiagnosticKind::UnterminatedDrawer { .. } = open.kind() {
+        ":END:".to_owned()
+    } else {
+        {
+            // `#+begin_NAME`, its prefix's case kept for the end line.
+            let marker = begin.trim_start();
+            let prefix = marker.get(..8).ok_or(OperationError::InvalidOffset)?;
+            let name: String = marker[8..]
+                .chars()
+                .take_while(|c| !c.is_whitespace())
+                .collect();
+            if name.is_empty() {
+                return Err(OperationError::InvalidOffset);
+            }
+            let end = if prefix == prefix.to_uppercase() {
+                "#+END_"
+            } else {
+                "#+end_"
+            };
+            format!("{end}{name}")
+        }
+    };
+    // The text that follows the begin line, up to a blank line or the end.
+    let mut end = if line_end < src.len() {
+        line_end + 1
+    } else {
+        line_end
+    };
+    while end < src.len() {
+        let next = src[end..].find('\n').map_or(src.len(), |i| end + i);
+        if src[end..next].trim().is_empty() {
+            break;
+        }
+        end = if next < src.len() { next + 1 } else { next };
+    }
+    let break_before = if src[..end].ends_with('\n') { "" } else { "\n" };
+    let set = EditSet::new(
+        src,
+        vec![Edit {
+            range: TextRange::empty(TextSize::from(end as u32)),
+            replacement: format!("{break_before}{end_line}\n"),
+        }],
+    )?;
+    // It reads back as the element, closed.
+    let next_doc = doc.apply(&set);
+    let still_open = next_doc.diagnostics().iter().any(|d| {
+        d.range().start() == at
+            && matches!(
+                d.kind(),
+                DiagnosticKind::UnterminatedBlock { .. }
+                    | DiagnosticKind::UnterminatedDrawer { .. }
+            )
+    });
+    let closed = next_doc.root().descendants().any(|n| {
+        n.text_range().start() == at && (Block::can_cast(n.kind()) || Drawer::can_cast(n.kind()))
+    });
+    if still_open || !closed {
+        return Err(OperationError::NotAllowedHere {
+            kind: OrgSyntaxKind::PARAGRAPH,
+            scope: OrgSyntaxKind::SECTION,
+        });
+    }
+    Ok(set)
+}
+
 /// Where an element's text ends, before the blank lines it owns.
 fn content_end(doc: &Document, element: &Element) -> TextSize {
     let r = element.full_range();
@@ -1257,6 +1343,45 @@ mod tests {
 
     fn compile(doc: &Document, op: &Operation) -> Result<EditSet, OperationError> {
         crate::compile(doc, op)
+    }
+
+    #[test]
+    fn a_block_never_closed_is_closed_after_its_text() {
+        let src = "Text.\n\n#+begin_src sh\ndf -h\nls\n\nAfter.\n";
+        let at = TextSize::from(7);
+        assert_eq!(
+            run(src, &Operation::CloseElement { at }).as_deref(),
+            Ok("Text.\n\n#+begin_src sh\ndf -h\nls\n#+end_src\n\nAfter.\n")
+        );
+    }
+
+    #[test]
+    fn a_closed_block_keeps_its_case_and_a_drawer_its_end() {
+        let at = TextSize::from(0);
+        assert_eq!(
+            run("#+BEGIN_QUOTE\nSaid.", &Operation::CloseElement { at }).as_deref(),
+            Ok("#+BEGIN_QUOTE\nSaid.\n#+END_QUOTE\n")
+        );
+        assert_eq!(
+            run(":NOTES:\nOne.\n\nTwo.\n", &Operation::CloseElement { at }).as_deref(),
+            Ok(":NOTES:\nOne.\n:END:\n\nTwo.\n")
+        );
+    }
+
+    #[test]
+    fn nothing_never_closed_there_is_refused() {
+        let at = TextSize::from(0);
+        assert_eq!(
+            run("Plain text.\n", &Operation::CloseElement { at }),
+            Err(OperationError::InvalidOffset)
+        );
+        assert_eq!(
+            run(
+                "#+begin_src sh\nx\n#+end_src\n",
+                &Operation::CloseElement { at }
+            ),
+            Err(OperationError::InvalidOffset)
+        );
     }
 
     #[test]
